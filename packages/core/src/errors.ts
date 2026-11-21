@@ -4,6 +4,8 @@ export type StrataErrorCode =
 	| 'duplicate-component'
 	| 'missing-component'
 	| 'invalid-schedule'
+	| 'invalid-format'
+	| 'unsupported-version'
 	| 'capacity-exceeded'
 	| 'disposed'
 
