@@ -12,3 +12,4 @@
 - Scene package: transforms, parent hierarchy with cycle protection and versioned scene files.
 - Renderer package: WebGPU and WebGL2 sprite rendering with automatic fallback and graphics loss recovery.
 - Playground app for exercising the renderer in a browser.
+- Input package: keyboard, pointer, touch and gamepad input with rebindable action maps.

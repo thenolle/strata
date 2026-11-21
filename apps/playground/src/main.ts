@@ -1,9 +1,11 @@
 import { ConsoleSink, Logger } from '@strata/core'
-import { Pcg32 } from '@strata/math'
+import { ActionMap, InputManager, describeBinding } from '@strata/input'
+import { Pcg32, Vec2 } from '@strata/math'
 import { Camera2D, SpriteBatch, createRenderer, fitCanvasToDisplay, packColor, type BackendKind, type RawImage } from '@strata/renderer'
 
 const SPRITES = 3000
 const WORLD_SIZE = 900
+const PAN_SPEED = 300
 
 function checkerboard(): RawImage {
 	const size = 8
@@ -44,27 +46,86 @@ if (!created.ok) {
 		speed: random.range(-2, 2),
 		color: packColor(random.range(0.3, 1), random.range(0.3, 1), random.range(0.3, 1), random.range(0.6, 1))
 	}))
+	const actions = new ActionMap({
+		moveLeft: [
+			{ kind: 'key', code: 'KeyA' },
+			{ kind: 'key', code: 'ArrowLeft' },
+			{ kind: 'gamepadAxis', axis: 0, direction: -1 }
+		],
+		moveRight: [
+			{ kind: 'key', code: 'KeyD' },
+			{ kind: 'key', code: 'ArrowRight' },
+			{ kind: 'gamepadAxis', axis: 0, direction: 1 }
+		],
+		moveUp: [
+			{ kind: 'key', code: 'KeyW' },
+			{ kind: 'key', code: 'ArrowUp' },
+			{ kind: 'gamepadAxis', axis: 1, direction: -1 }
+		],
+		moveDown: [
+			{ kind: 'key', code: 'KeyS' },
+			{ kind: 'key', code: 'ArrowDown' },
+			{ kind: 'gamepadAxis', axis: 1, direction: 1 }
+		],
+		boost: [
+			{ kind: 'key', code: 'Space' },
+			{ kind: 'pointerButton', button: 0 },
+			{ kind: 'gamepadButton', button: 0 }
+		],
+		resetView: [
+			{ kind: 'key', code: 'KeyF' },
+			{ kind: 'gamepadButton', button: 3 }
+		]
+	})
+	const input = new InputManager(canvas, actions)
+	const move = new Vec2()
+	let zoomFactor = 1
+	let status = 'WASD or arrows pan, wheel zooms, space or click boosts, F resets, R rebinds boost, L simulates graphics loss'
 	let losses = 0
 	let restores = 0
 	let frames = 0
 	let fps = 0
 	let sampleStart = performance.now()
+	let previous = sampleStart
 	renderer.lost.subscribe(() => {
 		losses++
 	})
 	renderer.restored.subscribe(() => {
 		restores++
 	})
-	addEventListener('keydown', (event: KeyboardEvent) => {
-		if (event.key === 'l' || event.key === 'L') renderer.simulateLoss()
-	})
+	const rebind = async (): Promise<void> => {
+		status = 'Press a key or gamepad button for boost (Escape cancels)'
+		const binding = await input.captureBinding(AbortSignal.timeout(8000))
+		if (binding === undefined) {
+			status = 'Rebind cancelled'
+			return
+		}
+		actions.replace('boost', [binding])
+		status = `boost is now ${describeBinding(binding)}`
+	}
 	const frame = (now: number): void => {
+		const dt = Math.min(0.1, (now - previous) / 1000)
+		previous = now
+		input.update()
+		if (input.keyboard.wasPressed('KeyL')) renderer.simulateLoss()
+		if (input.keyboard.wasPressed('KeyR')) void rebind()
+		if (input.action('resetView').pressed) {
+			camera.x = 0
+			camera.y = 0
+			zoomFactor = 1
+		}
+		zoomFactor = Math.min(8, Math.max(0.25, zoomFactor * Math.exp(-input.wheel * 0.001)))
+		input.vector(move, 'moveLeft', 'moveRight', 'moveDown', 'moveUp')
 		fitCanvasToDisplay(canvas)
-		camera.zoom = Math.min(canvas.width, canvas.height) / WORLD_SIZE
+		camera.zoom = (Math.min(canvas.width, canvas.height) / WORLD_SIZE) * zoomFactor
+		camera.x += (move.x * PAN_SPEED * dt) / zoomFactor
+		camera.y += (move.y * PAN_SPEED * dt) / zoomFactor
 		const viewProjection = camera.update(canvas.width, canvas.height)
+		const boost = input.action('boost')
+		const spin = 1 + 4 * boost.value
 		batch.clear()
 		const time = now / 1000
-		for (const sprite of sprites) batch.add(sprite.x, sprite.y, sprite.size, sprite.size, time * sprite.speed, sprite.color)
+		for (const sprite of sprites) batch.add(sprite.x, sprite.y, sprite.size, sprite.size, time * sprite.speed * spin, sprite.color)
 		renderer.render({ clearColor: [0.06, 0.07, 0.09, 1], viewProjection, draws: [{ texture, batch }] })
 		frames++
 		if (now - sampleStart >= 500) {
@@ -72,7 +133,17 @@ if (!created.ok) {
 			frames = 0
 			sampleStart = now
 		}
-		hud.textContent = `backend ${renderer.backend}\nstatus ${renderer.status}\nsprites ${SPRITES}\nfps ${fps}\nlosses ${losses}  restores ${restores}\npress L to simulate a graphics loss`
+		const pad = [...input.gamepads.pads.values()][0]
+		const pointer = input.pointers.primary
+		hud.textContent = [
+			`backend ${renderer.backend}  status ${renderer.status}  fps ${fps}`,
+			`losses ${losses}  restores ${restores}`,
+			`camera ${camera.x.toFixed(1)}, ${camera.y.toFixed(1)}  zoom ${zoomFactor.toFixed(2)}`,
+			`boost ${boost.value.toFixed(2)}  pressed ${boost.pressed}  released ${boost.released}`,
+			`pointers ${input.pointers.pointers.size}  primary ${pointer === undefined ? '-' : `${pointer.type} ${Math.round(pointer.x)},${Math.round(pointer.y)}`}`,
+			`gamepad ${pad === undefined ? 'none' : `${pad.id} (${pad.mapping || 'unmapped'})`}`,
+			status
+		].join('\n')
 		requestAnimationFrame(frame)
 	}
 	requestAnimationFrame(frame)

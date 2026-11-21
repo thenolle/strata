@@ -1,0 +1,12 @@
+{
+  "name": "@strata/input",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": {
+    "@strata/core": "workspace:*",
+    "@strata/math": "workspace:*"
+  },
+  "strata": { "platform": "browser" }
+}

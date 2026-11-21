@@ -5,6 +5,7 @@
   "type": "module",
   "dependencies": {
     "@strata/core": "workspace:*",
+    "@strata/input": "workspace:*",
     "@strata/math": "workspace:*",
     "@strata/renderer": "workspace:*"
   },
