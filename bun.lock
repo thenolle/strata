@@ -21,11 +21,21 @@
         "@strata/core": "workspace:*",
       },
     },
+    "packages/scene": {
+      "name": "@strata/scene",
+      "version": "0.0.0",
+      "dependencies": {
+        "@strata/core": "workspace:*",
+        "@strata/math": "workspace:*",
+      },
+    },
   },
   "packages": {
     "@strata/core": ["@strata/core@workspace:packages/core"],
 
     "@strata/math": ["@strata/math@workspace:packages/math"],
+
+    "@strata/scene": ["@strata/scene@workspace:packages/scene"],
 
     "@types/bun": ["@types/bun@1.4.5", "", { "dependencies": { "bun-types": "1.4.5" } }, "sha512-DpgwNI9z0L1S0gtb45QLCWgwCUcMLnsHYMJHQvpNj7erGiCGBvpggltAIeARrtobNMKMuy0UP7i56tKKgwFs/Q=="],
 

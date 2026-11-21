@@ -7,7 +7,5 @@
   "dependencies": {
     "@strata/core": "workspace:*"
   },
-  "strata": {
-    "platform": "universal"
-  }
+  "strata": { "platform": "universal" }
 }

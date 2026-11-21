@@ -35,7 +35,7 @@ function isValid(kind: FieldKind, value: unknown): boolean {
 	switch (kind) {
 		case 'f32': return typeof value === 'number' && Number.isFinite(value)
 		case 'i32': return typeof value === 'number' && Number.isInteger(value) && value >= -2147483648 && value <= 2147483647
-		case 'u32':
+		case 'u32': return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 4294967295
 		case 'entity': return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 4294967295
 		case 'bool': return typeof value === 'boolean'
 		case 'string': return typeof value === 'string'

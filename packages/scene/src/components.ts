@@ -1,0 +1,21 @@
+import { ComponentRegistry, defineComponent, type ComponentData, type Entity } from '@strata/core'
+
+/**
+ * Local position, unit rotation quaternion and scale relative to the parent, or to the world without one.
+ */
+export const Transform = defineComponent(
+	'transform',
+	{ x: 'f32', y: 'f32', z: 'f32', qx: 'f32', qy: 'f32', qz: 'f32', qw: 'f32', sx: 'f32', sy: 'f32', sz: 'f32' },
+	{ x: 0, y: 0, z: 0, qx: 0, qy: 0, qz: 0, qw: 1, sx: 1, sy: 1, sz: 1 }
+)
+
+/**
+ * Attaches an entity to a parent. Manage it through `TransformSystem.setParent`, which rejects cycles.
+ */
+export const Parent = defineComponent('parent', { parent: 'entity' }, { parent: 0 as Entity })
+
+export type TransformData = ComponentData<(typeof Transform)['schema']>
+
+export function createSceneRegistry(): ComponentRegistry {
+	return new ComponentRegistry().register(Transform).register(Parent)
+}
