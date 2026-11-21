@@ -1,0 +1,20 @@
+{
+  "name": "@strata/editor",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@gambrel/browser": "0.2.3",
+    "@gambrel/components": "0.2.3",
+    "@gambrel/reactivity": "0.2.3",
+    "@gambrel/view": "0.2.3",
+    "@strata/core": "workspace:*",
+    "@strata/editor-core": "workspace:*",
+    "@strata/input": "workspace:*",
+    "@strata/math": "workspace:*",
+    "@strata/project": "workspace:*",
+    "@strata/renderer": "workspace:*",
+    "@strata/storage-opfs": "workspace:*"
+  },
+  "strata": { "platform": "browser" }
+}

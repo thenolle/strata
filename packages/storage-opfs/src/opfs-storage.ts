@@ -7,6 +7,11 @@ function isMissing(error: unknown): boolean {
 	return error instanceof DOMException && (error.name === 'NotFoundError' || error.name === 'TypeMismatchError')
 }
 
+function assertSupported(): void {
+	if (!('storage' in navigator) || typeof navigator.storage.getDirectory !== 'function') throw new StrataError('unsupported', 'The origin private file system is not available (it needs a secure context)')
+	if (!('createWritable' in FileSystemFileHandle.prototype)) throw new StrataError('unsupported', 'This browser cannot write to the origin private file system (Safari needs version 26)')
+}
+
 /**
  * Project storage in the browser's origin private file system. Writes replace the file as a unit when the stream closes.
  * Browsers may evict unprotected storage under pressure; call `requestPersistence` after the user starts working.
@@ -20,11 +25,30 @@ export class OpfsStorage implements ProjectStorage {
 
 	static async open(name: string): Promise<OpfsStorage> {
 		if (name.includes('/') || normalizePath(name) !== name) throw new StrataError('invalid-argument', 'Storage names must be a single valid path segment')
-		if (!('storage' in navigator) || typeof navigator.storage.getDirectory !== 'function') throw new StrataError('unsupported', 'The origin private file system is not available (it needs a secure context)')
-		if (!('createWritable' in FileSystemFileHandle.prototype)) throw new StrataError('unsupported', 'This browser cannot write to the origin private file system (Safari needs version 26)')
+		assertSupported()
 		const base = await navigator.storage.getDirectory()
 		const projects = await base.getDirectoryHandle(ROOT_NAME, { create: true })
 		return new OpfsStorage(await projects.getDirectoryHandle(name, { create: true }))
+	}
+
+	/**
+	 * Names of every stored project, sorted.
+	 */
+	static async listProjects(): Promise<string[]> {
+		assertSupported()
+		const base = await navigator.storage.getDirectory()
+		let projects: FileSystemDirectoryHandle
+		try {
+			projects = await base.getDirectoryHandle(ROOT_NAME)
+		} catch (error: unknown) {
+			if (isMissing(error)) return []
+			throw error
+		}
+		const names: string[] = []
+		for await (const [name, handle] of projects.entries()) {
+			if (handle.kind === 'directory') names.push(name)
+		}
+		return names.sort()
 	}
 
 	/**

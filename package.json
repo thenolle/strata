@@ -10,8 +10,15 @@
     "audit": "bun tools/audit-deps.ts",
     "check": "bun run typecheck && bun run audit",
     "playground": "bun tools/playground.ts",
+    "editor": "bun tools/editor.ts",
     "hooks": "git config core.hooksPath .githooks",
     "lint:commits": "bun tools/lint-commit.ts --range origin/master..HEAD"
+  },
+  "dependencies": {
+    "@gambrel/bun": "0.2.3",
+    "@gambrel/components": "0.2.3",
+    "@gambrel/core": "0.2.3",
+    "@gambrel/view": "0.2.3"
   },
   "devDependencies": {
     "@types/bun": "1.4.5",

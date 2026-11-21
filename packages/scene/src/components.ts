@@ -14,8 +14,13 @@ export const Transform = defineComponent(
  */
 export const Parent = defineComponent('parent', { parent: 'entity' }, { parent: 0 as Entity })
 
+/**
+ * Human-readable entity name shown in editors.
+ */
+export const Name = defineComponent('name', { value: 'string' }, { value: 'Entity' })
+
 export type TransformData = ComponentData<(typeof Transform)['schema']>
 
 export function createSceneRegistry(): ComponentRegistry {
-	return new ComponentRegistry().register(Transform).register(Parent)
+	return new ComponentRegistry().register(Name).register(Transform).register(Parent)
 }

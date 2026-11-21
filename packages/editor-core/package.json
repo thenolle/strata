@@ -1,0 +1,14 @@
+{
+  "name": "@strata/editor-core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": {
+    "@strata/core": "workspace:*",
+    "@strata/math": "workspace:*",
+    "@strata/project": "workspace:*",
+    "@strata/scene": "workspace:*"
+  },
+  "strata": { "platform": "universal" }
+}
