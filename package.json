@@ -11,6 +11,7 @@
     "check": "bun run typecheck && bun run audit",
     "playground": "bun tools/playground.ts",
     "editor": "bun tools/editor.ts",
+    "merge": "bun tools/merge-pr.ts",
     "hooks": "git config core.hooksPath .githooks",
     "lint:commits": "bun tools/lint-commit.ts --range origin/master..HEAD"
   },

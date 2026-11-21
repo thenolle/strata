@@ -26,6 +26,8 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 	const syncContext = (): void => {
 		contexts.set('hasSelection', session.selection !== undefined)
 		contexts.set('isDirty', session.dirty)
+		contexts.set('canUndo', session.canUndo)
+		contexts.set('canRedo', session.canRedo)
 	}
 	syncContext()
 	store.add(session.changed.subscribe(syncContext))
@@ -33,6 +35,28 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 	store.add(commands.register({ id: 'workbench.action.showCommands', title: 'Show All Commands', category: 'View', run: hooks.openPalette }))
 	store.add(commands.register({ id: 'file.save', title: 'Save', category: 'File', run: hooks.save }))
 	store.add(commands.register({ id: 'project.close', title: 'Close Project', category: 'File', run: hooks.close }))
+	store.add(
+		commands.register({
+			id: 'edit.undo',
+			title: 'Undo',
+			category: 'Edit',
+			when: 'canUndo',
+			run: () => {
+				session.undo()
+			}
+		})
+	)
+	store.add(
+		commands.register({
+			id: 'edit.redo',
+			title: 'Redo',
+			category: 'Edit',
+			when: 'canRedo',
+			run: () => {
+				session.redo()
+			}
+		})
+	)
 	store.add(
 		commands.register({
 			id: 'entity.add',
@@ -68,9 +92,12 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 	)
 
 	const added = keybindings.addAll([
-		{ keys: 'ctrl+shift+k', command: 'workbench.action.showCommands' },
+		{ keys: 'ctrl+shift+p', command: 'workbench.action.showCommands' },
 		{ keys: 'f1', command: 'workbench.action.showCommands' },
 		{ keys: 'mod+s', command: 'file.save' },
+		{ keys: 'mod+z', command: 'edit.undo', when: 'canUndo && !textInputFocus' },
+		{ keys: 'ctrl+y', command: 'edit.redo', when: 'canRedo && !textInputFocus' },
+		{ keys: 'mod+shift+z', command: 'edit.redo', when: 'canRedo && !textInputFocus' },
 		{ keys: 'alt+n', command: 'entity.add' },
 		{ keys: 'alt+shift+n', command: 'entity.addChild', when: 'hasSelection' }
 	])

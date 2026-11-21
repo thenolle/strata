@@ -24,11 +24,7 @@ function invalid(message: string, cause?: unknown): Result<never> {
 	return err(new StrataError('invalid-format', message, cause === undefined ? undefined : { cause }))
 }
 
-/**
- * Captures every entity that has an identity as plain data. Entity references are written as stable ids.
- * Fails when a persistent entity references a transient or dead one.
- */
-export function snapshotWorld(world: World, registry: ComponentRegistry): Result<WorldSnapshot> {
+function collectIds(world: World): Result<Map<Entity, Guid>> {
 	const ids = new Map<Entity, Guid>()
 	const seen = new Set<string>()
 	for (const entity of world.query(Identity)) {
@@ -38,8 +34,13 @@ export function snapshotWorld(world: World, registry: ComponentRegistry): Result
 		seen.add(guid)
 		ids.set(entity, guid)
 	}
+	return ok(ids)
+}
+
+function capture(world: World, registry: ComponentRegistry, ids: ReadonlyMap<Entity, Guid>, subset: ReadonlySet<Entity> | undefined): Result<WorldSnapshot> {
 	const entities: EntitySnapshot[] = []
 	for (const [entity, id] of ids) {
+		if (subset !== undefined && !subset.has(entity)) continue
 		const components: Record<string, Record<string, unknown>> = {}
 		for (const definition of registry.definitions()) {
 			const data = world.get(entity, definition)
@@ -64,21 +65,41 @@ export function snapshotWorld(world: World, registry: ComponentRegistry): Result
 }
 
 /**
+ * Captures every entity that has an identity as plain data. Entity references are written as stable ids.
+ * Fails when a persistent entity references a transient or dead one.
+ */
+export function snapshotWorld(world: World, registry: ComponentRegistry): Result<WorldSnapshot> {
+	const ids = collectIds(world)
+	return ids.ok ? capture(world, registry, ids.value, undefined) : ids
+}
+
+/**
+ * Captures only the given entities. References to persistent entities outside the set are kept as stable ids,
+ * and resolve to the live entity when the snapshot is restored.
+ */
+export function snapshotEntities(world: World, registry: ComponentRegistry, entities: readonly Entity[]): Result<WorldSnapshot> {
+	const ids = collectIds(world)
+	return ids.ok ? capture(world, registry, ids.value, new Set(entities)) : ids
+}
+
+/**
  * Recreates entities from a snapshot, returning the mapping from stable ids to new handles.
+ * References resolve to entities in the snapshot first, then to entities already in the world.
  * All or nothing: on any failure every entity created by this call is removed again.
  */
 export function restoreWorld(world: World, registry: ComponentRegistry, snapshot: unknown): Result<ReadonlyMap<Guid, Entity>> {
 	if (!isRecord(snapshot) || !Array.isArray(snapshot['entities'])) return invalid('Scene data must contain an entities list')
-	const taken = new Set<string>()
-	for (const entity of world.query(Identity)) taken.add(world.require(entity, Identity).guid)
+	const existing = new Map<string, Entity>()
+	for (const entity of world.query(Identity)) existing.set(world.require(entity, Identity).guid, entity)
+	const claimed = new Set<string>()
 	const parsed: { id: Guid; components: Record<string, unknown> }[] = []
 	for (const raw of snapshot['entities'] as unknown[]) {
 		if (!isRecord(raw)) return invalid('Malformed entity entry')
 		const id = raw['id']
 		const components = raw['components']
 		if (!isGuid(id) || !isRecord(components)) return invalid('Malformed entity entry')
-		if (taken.has(id)) return invalid(`Identity ${id} already exists`)
-		taken.add(id)
+		if (existing.has(id) || claimed.has(id)) return invalid(`Identity ${id} already exists`)
+		claimed.add(id)
 		parsed.push({ id, components })
 	}
 	const ids = new Map<Guid, Entity>()
@@ -107,7 +128,7 @@ export function restoreWorld(world: World, registry: ComponentRegistry, snapshot
 				const value = rawData[field]
 				if (value === undefined) continue
 				if (kind === 'entity') {
-					const target = typeof value === 'string' ? ids.get(value as Guid) : undefined
+					const target = typeof value === 'string' ? (ids.get(value as Guid) ?? existing.get(value)) : undefined
 					if (target === undefined) return rollback(`Component "${name}" on ${entry.id} references unknown entity`)
 					init[field] = target
 				} else {
