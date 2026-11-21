@@ -1,6 +1,7 @@
 export { Camera2D } from './camera-2d.ts'
 export { createRenderer, detectSupport } from './create-renderer.ts'
 export type { BackendSupport, RendererOptions } from './create-renderer.ts'
+export { decodeImage } from './decode-image.ts'
 export { fitCanvasToDisplay } from './display.ts'
 export { Renderer, Texture, isRawImage } from './renderer.ts'
 export type { BackendKind, Color, Frame, LossInfo, RawImage, RendererStatus, SpriteDraw, TextureFilter, TextureSource } from './renderer.ts'

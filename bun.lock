@@ -17,7 +17,9 @@
         "@strata/core": "workspace:*",
         "@strata/input": "workspace:*",
         "@strata/math": "workspace:*",
+        "@strata/project": "workspace:*",
         "@strata/renderer": "workspace:*",
+        "@strata/storage-opfs": "workspace:*",
       },
     },
     "packages/core": {
@@ -39,6 +41,13 @@
         "@strata/core": "workspace:*",
       },
     },
+    "packages/project": {
+      "name": "@strata/project",
+      "version": "0.0.0",
+      "dependencies": {
+        "@strata/core": "workspace:*",
+      },
+    },
     "packages/renderer": {
       "name": "@strata/renderer",
       "version": "0.0.0",
@@ -55,6 +64,14 @@
         "@strata/math": "workspace:*",
       },
     },
+    "packages/storage-opfs": {
+      "name": "@strata/storage-opfs",
+      "version": "0.0.0",
+      "dependencies": {
+        "@strata/core": "workspace:*",
+        "@strata/project": "workspace:*",
+      },
+    },
   },
   "packages": {
     "@strata/core": ["@strata/core@workspace:packages/core"],
@@ -65,9 +82,13 @@
 
     "@strata/playground": ["@strata/playground@workspace:apps/playground"],
 
+    "@strata/project": ["@strata/project@workspace:packages/project"],
+
     "@strata/renderer": ["@strata/renderer@workspace:packages/renderer"],
 
     "@strata/scene": ["@strata/scene@workspace:packages/scene"],
+
+    "@strata/storage-opfs": ["@strata/storage-opfs@workspace:packages/storage-opfs"],
 
     "@types/bun": ["@types/bun@1.4.5", "", { "dependencies": { "bun-types": "1.4.5" } }, "sha512-DpgwNI9z0L1S0gtb45QLCWgwCUcMLnsHYMJHQvpNj7erGiCGBvpggltAIeARrtobNMKMuy0UP7i56tKKgwFs/Q=="],
 

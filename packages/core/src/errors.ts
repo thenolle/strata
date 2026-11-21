@@ -8,6 +8,10 @@ export type StrataErrorCode =
 	| 'unsupported-version'
 	| 'unsupported'
 	| 'graphics-failure'
+	| 'not-found'
+	| 'conflict'
+	| 'corrupt'
+	| 'storage-failure'
 	| 'capacity-exceeded'
 	| 'disposed'
 

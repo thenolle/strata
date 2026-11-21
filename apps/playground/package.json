@@ -7,7 +7,9 @@
     "@strata/core": "workspace:*",
     "@strata/input": "workspace:*",
     "@strata/math": "workspace:*",
-    "@strata/renderer": "workspace:*"
+    "@strata/project": "workspace:*",
+    "@strata/renderer": "workspace:*",
+    "@strata/storage-opfs": "workspace:*"
   },
   "strata": { "platform": "browser" }
 }

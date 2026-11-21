@@ -1,11 +1,14 @@
-import { ConsoleSink, Logger } from '@strata/core'
+import { ConsoleSink, Logger, type Result } from '@strata/core'
 import { ActionMap, InputManager, describeBinding } from '@strata/input'
 import { Pcg32, Vec2 } from '@strata/math'
-import { Camera2D, SpriteBatch, createRenderer, fitCanvasToDisplay, packColor, type BackendKind, type RawImage } from '@strata/renderer'
+import { Project, type AssetRecord, type ImageAsset } from '@strata/project'
+import { Camera2D, SpriteBatch, createRenderer, decodeImage, fitCanvasToDisplay, packColor, type BackendKind, type RawImage } from '@strata/renderer'
+import { OpfsStorage } from '@strata/storage-opfs'
 
 const SPRITES = 3000
 const WORLD_SIZE = 900
 const PAN_SPEED = 300
+const LISTED_ASSETS = 5
 
 function checkerboard(): RawImage {
 	const size = 8
@@ -17,6 +20,11 @@ function checkerboard(): RawImage {
 		}
 	}
 	return { width: size, height: size, data }
+}
+
+function describeAsset(record: AssetRecord): string {
+	const detail = record.kind === 'image' ? `${record.image.width}x${record.image.height}` : `${record.audio.durationSeconds.toFixed(2)}s ${record.audio.sampleRate}Hz`
+	return `  ${record.name} (${record.kind}, ${detail})`
 }
 
 const canvas = document.createElement('canvas')
@@ -35,7 +43,7 @@ if (!created.ok) {
 	hud.textContent = `Graphics unavailable\n${created.error.message}`
 } else {
 	const renderer = created.value
-	const texture = renderer.createTexture(checkerboard(), 'nearest')
+	let texture = renderer.createTexture(checkerboard(), 'nearest')
 	const batch = new SpriteBatch(SPRITES)
 	const camera = new Camera2D()
 	const random = new Pcg32(1234)
@@ -79,6 +87,10 @@ if (!created.ok) {
 	})
 	const input = new InputManager(canvas, actions)
 	const move = new Vec2()
+	let project: Project | undefined
+	let projectLine = 'project: opening'
+	let assetLines: string[] = []
+	let importLine = 'drop PNG or WAV files onto the page to import them'
 	let zoomFactor = 1
 	let status = 'WASD or arrows pan, wheel zooms, space or click boosts, F resets, R rebinds boost, L simulates graphics loss'
 	let losses = 0
@@ -87,6 +99,73 @@ if (!created.ok) {
 	let fps = 0
 	let sampleStart = performance.now()
 	let previous = sampleStart
+
+	const refreshAssets = (): void => {
+		const records = project?.assets.list() ?? []
+		assetLines = [`assets ${records.length}`, ...records.slice(0, LISTED_ASSETS).map(describeAsset)]
+		if (records.length > LISTED_ASSETS) assetLines.push(`  and ${records.length - LISTED_ASSETS} more`)
+	}
+
+	const useImage = async (record: ImageAsset): Promise<void> => {
+		if (project === undefined) return
+		const bytes = await project.assets.read(record.id)
+		if (!bytes.ok) {
+			importLine = `read failed: ${bytes.error.message}`
+			return
+		}
+		try {
+			const next = renderer.createTexture(await decodeImage(bytes.value), 'linear')
+			texture.dispose()
+			texture = next
+		} catch (error: unknown) {
+			importLine = `decode failed: ${error instanceof Error ? error.message : String(error)}`
+		}
+	}
+
+	const openProject = async (): Promise<void> => {
+		try {
+			const storage = await OpfsStorage.open('playground')
+			const opened = await Project.open(storage)
+			const result: Result<Project> = opened.ok ? opened : opened.error.code === 'not-found' ? await Project.create(storage, 'Playground') : opened
+			if (!result.ok) {
+				projectLine = `project error: ${result.error.message}`
+				return
+			}
+			project = result.value
+			projectLine = `project ${project.name} (${project.id.slice(0, 8)})`
+			refreshAssets()
+			const image = project.assets.list().find((record): record is ImageAsset => record.kind === 'image')
+			if (image !== undefined) await useImage(image)
+		} catch (error: unknown) {
+			projectLine = `storage unavailable: ${error instanceof Error ? error.message : String(error)}`
+		}
+	}
+
+	const importFiles = async (files: readonly File[]): Promise<void> => {
+		if (project === undefined) {
+			importLine = 'no project is open'
+			return
+		}
+		for (const file of files) {
+			const imported = await project.assets.importAsset(file.name, new Uint8Array(await file.arrayBuffer()))
+			if (!imported.ok) {
+				importLine = `${file.name}: ${imported.error.message}`
+				continue
+			}
+			importLine = `imported ${imported.value.name}`
+			void OpfsStorage.requestPersistence()
+			refreshAssets()
+			if (imported.value.kind === 'image') await useImage(imported.value)
+		}
+	}
+
+	addEventListener('dragover', (event) => event.preventDefault())
+	addEventListener('drop', (event: DragEvent) => {
+		event.preventDefault()
+		void importFiles([...(event.dataTransfer?.files ?? [])])
+	})
+	void openProject()
+
 	renderer.lost.subscribe(() => {
 		losses++
 	})
@@ -142,6 +221,9 @@ if (!created.ok) {
 			`boost ${boost.value.toFixed(2)}  pressed ${boost.pressed}  released ${boost.released}`,
 			`pointers ${input.pointers.pointers.size}  primary ${pointer === undefined ? '-' : `${pointer.type} ${Math.round(pointer.x)},${Math.round(pointer.y)}`}`,
 			`gamepad ${pad === undefined ? 'none' : `${pad.id} (${pad.mapping || 'unmapped'})`}`,
+			projectLine,
+			...assetLines,
+			importLine,
 			status
 		].join('\n')
 		requestAnimationFrame(frame)
