@@ -259,3 +259,59 @@ body {
   padding: 14px;
   color: #8b93a0;
 }
+
+.menu-root {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  outline: none;
+}
+
+.menu {
+  position: fixed;
+  min-width: 220px;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid #3a3f47;
+  border-radius: 8px;
+  background: #1a1d22;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
+}
+
+.menu-item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto 14px;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 5px;
+  cursor: default;
+  user-select: none;
+}
+
+.menu-item[data-active='true'] {
+  background: #2b4a7a;
+}
+
+.menu-item[aria-disabled='true'] {
+  opacity: 0.45;
+}
+
+.menu-separator {
+  height: 1px;
+  margin: 4px 6px;
+  background: #2c3037;
+}
+
+.menu-check,
+.menu-chevron {
+  text-align: center;
+  color: #8b93a0;
+}
+
+.menu-shortcut {
+  color: #8b93a0;
+  font: 12px monospace;
+}

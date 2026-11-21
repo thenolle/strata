@@ -20,3 +20,5 @@
 - Editor: command palette and keyboard shortcuts.
 - Editor: undo and redo with merging of continuous edits, and saved-position tracking.
 - Tooling: `bun run merge` waits for checks and squash-merges the current pull request.
+- Menus package: contributed menus with groups, conditions, check items, submenus and a keyboard and pointer controller.
+- Editor: context menu with submenus, type-ahead, touch long-press and keyboard opening, wired to the hierarchy.

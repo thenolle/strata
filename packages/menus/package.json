@@ -1,0 +1,12 @@
+{
+  "name": "@strata/menus",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": {
+    "@strata/commands": "workspace:*",
+    "@strata/core": "workspace:*"
+  },
+  "strata": { "platform": "universal" }
+}

@@ -29,6 +29,7 @@
         "@strata/editor-core": "workspace:*",
         "@strata/input": "workspace:*",
         "@strata/math": "workspace:*",
+        "@strata/menus": "workspace:*",
         "@strata/project": "workspace:*",
         "@strata/renderer": "workspace:*",
         "@strata/storage-opfs": "workspace:*",
@@ -79,6 +80,14 @@
       "name": "@strata/math",
       "version": "0.0.0",
       "dependencies": {
+        "@strata/core": "workspace:*",
+      },
+    },
+    "packages/menus": {
+      "name": "@strata/menus",
+      "version": "0.0.0",
+      "dependencies": {
+        "@strata/commands": "workspace:*",
         "@strata/core": "workspace:*",
       },
     },
@@ -142,6 +151,8 @@
     "@strata/input": ["@strata/input@workspace:packages/input"],
 
     "@strata/math": ["@strata/math@workspace:packages/math"],
+
+    "@strata/menus": ["@strata/menus@workspace:packages/menus"],
 
     "@strata/playground": ["@strata/playground@workspace:apps/playground"],
 

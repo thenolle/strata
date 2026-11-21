@@ -1,5 +1,5 @@
 import { Emitter, StrataError, err, ok, toDisposable, type Disposable, type Result } from '@strata/core'
-import { parseWhen, type ContextKeys, type WhenNode } from './context.ts'
+import { evaluateWhen, parseWhen, type ContextKeys, type ContextValue, type WhenNode } from './context.ts'
 
 export interface CommandDefinition {
 	readonly id: string
@@ -52,22 +52,36 @@ export class CommandRegistry {
 		return this.#commands.has(id)
 	}
 
-	isEnabled(id: string): boolean {
+	get(id: string): CommandDefinition | undefined {
+		return this.#commands.get(id)?.definition
+	}
+
+	/**
+	 * Whether the command's condition holds. A lookup can supply context values that differ from the live ones,
+	 * for example those of a menu opened on a specific target.
+	 */
+	isEnabled(id: string, lookup?: (name: string) => ContextValue): boolean {
 		const entry = this.#commands.get(id)
-		return entry !== undefined && (entry.when === undefined || this.#contexts.evaluate(entry.when))
+		if (entry === undefined) return false
+		return entry.when === undefined || evaluateWhen(entry.when, lookup ?? ((name) => this.#contexts.get(name)))
 	}
 
 	/**
 	 * Commands sorted by category then title.
 	 */
 	list(options: ListOptions = {}): CommandDefinition[] {
-		return [...this.#commands.values()].filter((entry) => options.enabledOnly !== true || entry.when === undefined || this.#contexts.evaluate(entry.when)).map((entry) => entry.definition).sort((a, b) => `${a.category ?? ''}\u0000${a.title}`.localeCompare(`${b.category ?? ''}\u0000${b.title}`))
+		return [...this.#commands.values()]
+			.filter((entry) => options.enabledOnly !== true || entry.when === undefined || this.#contexts.evaluate(entry.when))
+			.map((entry) => entry.definition)
+			.sort((a, b) => `${a.category ?? ''}\u0000${a.title}`.localeCompare(`${b.category ?? ''}\u0000${b.title}`))
 	}
 
 	async execute(id: string, args?: unknown): Promise<Result<void>> {
 		const entry = this.#commands.get(id)
 		if (entry === undefined) return err(new StrataError('not-found', `Unknown command "${id}"`))
-		if (entry.when !== undefined && !this.#contexts.evaluate(entry.when)) return err(new StrataError('conflict', `Command "${id}" is not available right now`))
+		if (entry.when !== undefined && !this.#contexts.evaluate(entry.when)) {
+			return err(new StrataError('conflict', `Command "${id}" is not available right now`))
+		}
 		try {
 			await entry.definition.run(args)
 			return ok(undefined)

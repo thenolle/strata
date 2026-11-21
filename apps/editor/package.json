@@ -13,6 +13,7 @@
     "@strata/editor-core": "workspace:*",
     "@strata/input": "workspace:*",
     "@strata/math": "workspace:*",
+    "@strata/menus": "workspace:*",
     "@strata/project": "workspace:*",
     "@strata/renderer": "workspace:*",
     "@strata/storage-opfs": "workspace:*"
