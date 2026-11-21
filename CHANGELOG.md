@@ -10,3 +10,5 @@
 - Core package: component registry, persistent identity and atomic world snapshots.
 - Math package: scalar helpers, vectors, quaternions, matrices, seeded PCG32 generator and deterministic trigonometry.
 - Scene package: transforms, parent hierarchy with cycle protection and versioned scene files.
+- Renderer package: WebGPU and WebGL2 sprite rendering with automatic fallback and graphics loss recovery.
+- Playground app for exercising the renderer in a browser.
