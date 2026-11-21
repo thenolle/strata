@@ -18,11 +18,11 @@ Exported games contain layers 1 to 3 only. They contain no editor code and no Ga
 ## World model
 
 - One entity world is the single source of truth for gameplay and editing.
-- An entity is a 32-bit handle: 20 bits of index and 12 bits of generation. A stale handle is detected, never reused silently.
+- An entity is a 32-bit handle: 20 bits of index and 12 bits of generation. A stale handle is detected, and a slot whose generations are exhausted is retired rather than wrapped.
 - Components are declared with a typed schema, so serialization, inspection and networking share one definition.
-- Storage is a sparse set per component type. Queries use cached component masks.
+- Storage is a sparse set per component type. Queries intersect the smallest participating storage; cached component masks will be added only if measurements justify them.
 - Hierarchy is a `Parent` component. A hierarchy system keeps child lists and propagates dirty transforms.
-- Systems are functions registered into ordered stages with explicit dependencies. Stage order is validated at startup.
+- Systems are functions registered into ordered stages with explicit same-stage dependencies. The schedule is validated before it first runs.
 
 ## Time and determinism
 
