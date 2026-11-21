@@ -13,3 +13,5 @@
 - Renderer package: WebGPU and WebGL2 sprite rendering with automatic fallback and graphics loss recovery.
 - Playground app for exercising the renderer in a browser.
 - Input package: keyboard, pointer, touch and gamepad input with rebindable action maps.
+- Project package: validated project storage, content-addressed asset library with PNG and WAV import, and scene files.
+- Storage package for the browser's origin private file system, and image decoding in the renderer.
