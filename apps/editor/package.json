@@ -8,6 +8,7 @@
     "@gambrel/components": "0.2.3",
     "@gambrel/reactivity": "0.2.3",
     "@gambrel/view": "0.2.3",
+    "@strata/commands": "workspace:*",
     "@strata/core": "workspace:*",
     "@strata/editor-core": "workspace:*",
     "@strata/input": "workspace:*",

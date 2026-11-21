@@ -1,0 +1,11 @@
+{
+  "name": "@strata/commands",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": {
+    "@strata/core": "workspace:*"
+  },
+  "strata": { "platform": "universal" }
+}

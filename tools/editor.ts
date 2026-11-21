@@ -11,6 +11,7 @@ const editor = join(root, 'apps/editor')
 const assets = join(root, '.cache/editor')
 const port = Number(Bun.env['PORT'] ?? 3220)
 if (!Number.isInteger(port) || port < 0 || port > 65535) throw new RangeError('PORT must be an integer between 0 and 65535')
+const policyEnabled = Bun.env['STRATA_CSP'] !== 'off'
 
 const POLICY = [
 	"default-src 'self'",
@@ -47,11 +48,11 @@ async function build(): Promise<boolean> {
 if (!(await build())) process.exit(1)
 
 const app = createApp({ development: true })
-	.use(async (context, next) => {
-		if (context.url.pathname === '/assets/client.js' && !(await build())) return text('Build failed; see the terminal', { status: 500 })
+	.use(async (ctx, next) => {
+		if (ctx.url.pathname === '/assets/client.js' && !(await build())) return text('Build failed; see the terminal', { status: 500 })
 		const response = await next()
 		const headers = new Headers(response.headers)
-		headers.set('content-security-policy', POLICY)
+		if (policyEnabled) headers.set('content-security-policy', POLICY)
 		headers.set('x-content-type-options', 'nosniff')
 		headers.set('referrer-policy', 'no-referrer')
 		return new Response(response.body, { status: response.status, statusText: response.statusText, headers })
@@ -60,4 +61,4 @@ const app = createApp({ development: true })
 	.get('/', async () => html(`<!doctype html>${await renderToString(Shell())}`, { headers: { 'cache-control': 'no-store' } }))
 
 const server = serve(app, { port, hostname: 'localhost', development: true })
-console.log(`Strata editor: ${server.url.href}`)
+console.log(`Strata editor: ${server.url.href}${policyEnabled ? '' : ' (content security policy off)'}`)
