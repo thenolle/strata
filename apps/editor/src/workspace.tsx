@@ -4,7 +4,9 @@ import { onCleanup, signal } from '@gambrel/reactivity'
 import type { Child } from '@gambrel/view'
 import type { Entity } from '@strata/core'
 import type { EditorSession } from '@strata/editor-core'
+import { ContextMenu, type MenuRequest } from './context-menu.tsx'
 import { Inspector } from './inspector.tsx'
+import { attachLongPress } from './long-press.ts'
 import { logger } from './logger.ts'
 import { CommandPalette } from './palette.tsx'
 import { createStudio } from './studio.ts'
@@ -12,6 +14,10 @@ import { startViewport } from './viewport.ts'
 
 function isTextInput(target: EventTarget | null): boolean {
 	return target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
+}
+
+function menuTarget(target: EventTarget | null): HTMLElement | null {
+	return target instanceof Element ? target.closest<HTMLElement>('[data-menu]') : null
 }
 
 export function Workspace(props: { readonly session: EditorSession; readonly onClose: () => void }): Child {
@@ -23,6 +29,8 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 	const notice = signal('')
 	const status = signal('Starting graphics')
 	const paletteOpen = signal(false)
+	const menu = signal<MenuRequest | undefined>(undefined)
+	let rootElement: HTMLElement | undefined
 
 	const save = async (): Promise<void> => {
 		const result = await session.save()
@@ -34,7 +42,30 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 		paletteOpen.set(open)
 	}
 
-	const studio = createStudio(session, { save, close: props.onClose, openPalette: () => setPalette(true) })
+	const openMenu = (request: MenuRequest): void => {
+		setPalette(false)
+		menu.set(request)
+	}
+
+	const openFor = (element: HTMLElement, x: number, y: number, keyboard = false): void => {
+		const entity = element.dataset['entity']
+		if (entity !== undefined) session.select(Number(entity) as Entity)
+		openMenu({ menuId: element.dataset['menu'] ?? '', x, y, keyboard })
+	}
+
+	const showContextMenu = (): void => {
+		const anchor = rootElement?.querySelector<HTMLElement>('.row[data-selected="true"]') ?? rootElement?.querySelector<HTMLElement>('.outline')
+		if (anchor === null || anchor === undefined) return
+		const rect = anchor.getBoundingClientRect()
+		openFor(anchor.closest<HTMLElement>('[data-menu]') ?? anchor, rect.left + 24, rect.bottom - 2, true)
+	}
+
+	const studio = createStudio(session, {
+		save,
+		close: props.onClose,
+		openPalette: () => setPalette(true),
+		openContextMenu: showContextMenu
+	})
 
 	const run = (id: string, args?: unknown): void => {
 		void studio.commands.execute(id, args).then((result) => notice.set(result.ok ? '' : result.error.message))
@@ -43,7 +74,9 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 	return (
 		<div
 			class="workspace"
-			ref={() => {
+			ref={(element: Element) => {
+				const root = element as HTMLElement
+				rootElement = root
 				const subscription = session.changed.subscribe((kind) => {
 					fieldRevision.update((value) => value + 1)
 					if (kind !== 'transform') outlineRevision.update((value) => value + 1)
@@ -55,20 +88,33 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 					event.preventDefault()
 					if (outcome.kind === 'command') run(outcome.command, outcome.args)
 				}
+				const onContextMenu = (event: MouseEvent): void => {
+					const target = menuTarget(event.target)
+					if (target === null) return
+					event.preventDefault()
+					openFor(target, event.clientX, event.clientY)
+				}
 				const onFocusIn = (event: FocusEvent): void => studio.contexts.set('textInputFocus', isTextInput(event.target))
 				const onFocusOut = (): void => studio.contexts.set('textInputFocus', false)
 				const onBeforeUnload = (event: BeforeUnloadEvent): void => {
 					if (session.dirty) event.preventDefault()
 				}
+				const detachLongPress = attachLongPress(root, (target, x, y) => {
+					const found = menuTarget(target)
+					if (found !== null) openFor(found, x, y)
+				})
 				addEventListener('keydown', onKeyDown)
 				addEventListener('beforeunload', onBeforeUnload)
+				root.addEventListener('contextmenu', onContextMenu)
 				document.addEventListener('focusin', onFocusIn)
 				document.addEventListener('focusout', onFocusOut)
 				onCleanup(() => {
 					subscription.dispose()
 					studio.dispose()
+					detachLongPress()
 					removeEventListener('keydown', onKeyDown)
 					removeEventListener('beforeunload', onBeforeUnload)
+					root.removeEventListener('contextmenu', onContextMenu)
 					document.removeEventListener('focusin', onFocusIn)
 					document.removeEventListener('focusout', onFocusOut)
 				})
@@ -95,7 +141,7 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 					Close project
 				</Button>
 			</header>
-			<aside class="panel outline" aria-label="Hierarchy">
+			<aside class="panel outline" aria-label="Hierarchy" data-menu="outline/context">
 				<div class="panel-actions">
 					<Button size="sm" onClick={() => run('entity.add')}>
 						Add entity
@@ -116,6 +162,8 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 							{rows.map((row) => (
 								<li
 									class="row"
+									data-menu="outline/context"
+									data-entity={String(row.entity)}
 									data-selected={String(session.selection === row.entity)}
 									style={`padding-left:${8 + row.depth * 14}px`}
 									onClick={() => session.select(row.entity)}
@@ -156,6 +204,12 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 					/>
 				) : null
 			}
+			{() => {
+				const request = menu()
+				return request === undefined ? null : (
+					<ContextMenu request={request} studio={studio} onRun={(command, args) => run(command, args)} onClose={() => menu.set(undefined)} />
+				)
+			}}
 		</div>
 	)
 }
