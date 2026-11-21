@@ -6,6 +6,8 @@ export type StrataErrorCode =
 	| 'invalid-schedule'
 	| 'invalid-format'
 	| 'unsupported-version'
+	| 'unsupported'
+	| 'graphics-failure'
 	| 'capacity-exceeded'
 	| 'disposed'
 

@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "audit": "bun tools/audit-deps.ts",
     "check": "bun run typecheck && bun run audit",
+    "playground": "bun tools/playground.ts",
     "hooks": "git config core.hooksPath .githooks",
     "lint:commits": "bun tools/lint-commit.ts --range origin/master..HEAD"
   },
