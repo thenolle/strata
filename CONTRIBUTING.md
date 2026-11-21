@@ -10,6 +10,20 @@ Strata uses the PolyForm Strict License 1.0.0, which does not grant redistributi
 - Strict TypeScript, ESM, no semicolons, single quotes, tab indentation.
 - Keep modules small and cohesive, and document public APIs with TSDoc.
 
+## Workspace packages
+
+Every package under `packages/` and `apps/` declares where its code runs:
+
+```json
+{ "strata": { "platform": "universal" } }
+```
+
+- `universal` code runs in browsers and on the server. It may import only other universal packages and no platform modules.
+- `browser` code may import universal and browser packages, never `node:`, `bun:` or server-only modules.
+- `server` code may import anything.
+
+`bun run audit` enforces these rules.
+
 ## Workflow
 
 1. Branch from `master`. Never push directly to `master`.
