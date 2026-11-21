@@ -188,3 +188,74 @@ body {
   text-transform: uppercase;
   color: #8b93a0;
 }
+
+.palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.palette {
+  display: grid;
+  width: min(640px, 92vw);
+  max-height: 60vh;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid #3a3f47;
+  border-radius: 10px;
+  background: #1a1d22;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+}
+
+.palette-input {
+  padding: 12px 14px;
+  border: 0;
+  border-bottom: 1px solid #2c3037;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+
+.palette-list {
+  margin: 0;
+  padding: 4px;
+  overflow: auto;
+  list-style: none;
+}
+
+.palette-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.palette-row[data-active='true'] {
+  background: #2b4a7a;
+}
+
+.palette-row mark {
+  background: transparent;
+  color: #ffd479;
+  font-weight: 600;
+}
+
+.palette-row kbd {
+  color: #8b93a0;
+  font: 12px monospace;
+}
+
+.palette-empty {
+  margin: 0;
+  padding: 14px;
+  color: #8b93a0;
+}

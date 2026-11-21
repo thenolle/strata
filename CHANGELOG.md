@@ -16,3 +16,5 @@
 - Project package: validated project storage, content-addressed asset library with PNG and WAV import, and scene files.
 - Storage package for the browser's origin private file system, and image decoding in the renderer.
 - Editor: project launcher, workspace with hierarchy, inspector and viewport, and an editor session package.
+- Commands package: context keys with when clauses, command registry, chorded keybindings and fuzzy quick pick.
+- Editor: command palette and keyboard shortcuts.

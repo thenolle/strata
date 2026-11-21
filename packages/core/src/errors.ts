@@ -12,6 +12,7 @@ export type StrataErrorCode =
 	| 'conflict'
 	| 'corrupt'
 	| 'storage-failure'
+	| 'command-failed'
 	| 'capacity-exceeded'
 	| 'disposed'
 
