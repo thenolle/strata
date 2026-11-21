@@ -5,6 +5,8 @@
     "moduleResolution": "bundler",
     "lib": ["ESNext", "DOM", "DOM.Iterable", "DOM.AsyncIterable"],
     "types": ["bun", "@webgpu/types"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "@gambrel/view",
     "strict": true,
     "exactOptionalPropertyTypes": true,
     "noUncheckedIndexedAccess": true,

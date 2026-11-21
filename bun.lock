@@ -4,10 +4,33 @@
   "workspaces": {
     "": {
       "name": "strata",
+      "dependencies": {
+        "@gambrel/bun": "0.2.3",
+        "@gambrel/components": "0.2.3",
+        "@gambrel/core": "0.2.3",
+        "@gambrel/view": "0.2.3",
+      },
       "devDependencies": {
         "@types/bun": "1.4.5",
         "@webgpu/types": "0.1.74",
         "typescript": "7.0.2",
+      },
+    },
+    "apps/editor": {
+      "name": "@strata/editor",
+      "version": "0.0.0",
+      "dependencies": {
+        "@gambrel/browser": "0.2.3",
+        "@gambrel/components": "0.2.3",
+        "@gambrel/reactivity": "0.2.3",
+        "@gambrel/view": "0.2.3",
+        "@strata/core": "workspace:*",
+        "@strata/editor-core": "workspace:*",
+        "@strata/input": "workspace:*",
+        "@strata/math": "workspace:*",
+        "@strata/project": "workspace:*",
+        "@strata/renderer": "workspace:*",
+        "@strata/storage-opfs": "workspace:*",
       },
     },
     "apps/playground": {
@@ -25,6 +48,16 @@
     "packages/core": {
       "name": "@strata/core",
       "version": "0.0.0",
+    },
+    "packages/editor-core": {
+      "name": "@strata/editor-core",
+      "version": "0.0.0",
+      "dependencies": {
+        "@strata/core": "workspace:*",
+        "@strata/math": "workspace:*",
+        "@strata/project": "workspace:*",
+        "@strata/scene": "workspace:*",
+      },
     },
     "packages/input": {
       "name": "@strata/input",
@@ -74,7 +107,27 @@
     },
   },
   "packages": {
+    "@gambrel/browser": ["@gambrel/browser@0.2.3", "", { "dependencies": { "@gambrel/reactivity": "^0.2.3", "@gambrel/router": "^0.2.3", "@gambrel/view": "^0.2.3" } }, "sha512-2A50L4I39zgJjXsWqiNxZyEneBflhZA3uJTQ0OSExs7sL00FGsIes2gBME699epI4KZ30gWZel6b1ipQJySc3g=="],
+
+    "@gambrel/bun": ["@gambrel/bun@0.2.3", "", { "dependencies": { "@gambrel/core": "^0.2.3" } }, "sha512-TjSrMgxqVt9tGXtG3bwO7cmAoE5q/cBz4HaSkmzcK2nHKI0aFxJ6pDUkXjIqcowG7d932kP7xdnuANv+Je4v2w=="],
+
+    "@gambrel/components": ["@gambrel/components@0.2.3", "", { "dependencies": { "@gambrel/icons": "^0.2.3", "@gambrel/reactivity": "^0.2.3", "@gambrel/view": "^0.2.3" } }, "sha512-5bzwdYWaLy9bxYzgGglMbVx3jKRmP9lrBp5UqGnB1vhPeEq23iQMpH0nolDSbTE1k7sKZaC25bEmUQnSmQXNKg=="],
+
+    "@gambrel/core": ["@gambrel/core@0.2.3", "", {}, "sha512-Ak1Rqs1XUSWHesogCA+x8+ectj7qCgRYgkujcJ1XEJUGHStSDOpsobBmFShXWljsS0SdtV+YYqtkdFGTf0PBTQ=="],
+
+    "@gambrel/icons": ["@gambrel/icons@0.2.3", "", { "dependencies": { "@gambrel/view": "^0.2.3" } }, "sha512-K1nWuIcor7ALr7uDDTi2y/uxtbOMhjSdQzMY2F3viTiXZcdMYSxqk2Nju3nEkWPTg/9k/Acv6LbXz5iCeApAmQ=="],
+
+    "@gambrel/reactivity": ["@gambrel/reactivity@0.2.3", "", {}, "sha512-/Jc1ds6zSLlH3S1ihFHOg3bWwCiV+BNFQNcOVlxLCnumbZ4o0B51WGzgbO/kI030ZS7peysaYsvr6EPTK5cQKA=="],
+
+    "@gambrel/router": ["@gambrel/router@0.2.3", "", { "dependencies": { "@gambrel/view": "^0.2.3" } }, "sha512-j1ibfcuUZ32ZXkLwjr377Xu41peylQWcrOXbQmH6hCiu88soAAFIjKjpAl01v4mmiTjY1V9DKGpOoI4/RUUbYw=="],
+
+    "@gambrel/view": ["@gambrel/view@0.2.3", "", {}, "sha512-rHVA5+68NNyuPk4YwCLoYuRDdWjXmovzaBxPHnbQwbzVrmJ8Y4Mw+38DvWIydDtxRZt8KU6I5gmqzNtBIvCGXQ=="],
+
     "@strata/core": ["@strata/core@workspace:packages/core"],
+
+    "@strata/editor": ["@strata/editor@workspace:apps/editor"],
+
+    "@strata/editor-core": ["@strata/editor-core@workspace:packages/editor-core"],
 
     "@strata/input": ["@strata/input@workspace:packages/input"],
 
