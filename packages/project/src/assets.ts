@@ -12,6 +12,7 @@ export const MAX_ASSET_BYTES = 256 * 1024 * 1024
 export const MAX_SCRIPT_BYTES = 256 * 1024
 export const PREFAB_FORMAT = 'strata.prefab'
 export const MAX_PREFAB_BYTES = 8 * 1024 * 1024
+export const MAX_GRAPH_BYTES = 4 * 1024 * 1024
 
 const MAX_FOLDER_DEPTH = 8
 const INDEX_PATH = 'assets/index.json'
@@ -57,7 +58,27 @@ export interface PrefabAsset extends AssetBase {
 	readonly prefab: PrefabMeta
 }
 
-export type AssetRecord = ImageAsset | AudioAsset | ScriptAsset | PrefabAsset
+export interface GraphMeta {
+	readonly nodes: number
+}
+
+export interface GraphAsset extends AssetBase {
+	readonly kind: 'graph'
+	readonly graph: GraphMeta
+}
+
+function inspectGraph(bytes: Uint8Array): Result<GraphMeta> {
+	if (bytes.length > MAX_GRAPH_BYTES) return err(new StrataError('invalid-argument', 'Graphs are at most 4 MB'))
+	try {
+		const data = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) as { readonly format?: unknown; readonly nodes?: unknown; readonly edges?: unknown; readonly variables?: unknown } | null
+		if (data?.format !== 'strata.graph' || !Array.isArray(data.nodes) || !Array.isArray(data.edges) || !Array.isArray(data.variables)) return err(new StrataError('invalid-format', 'This file is not a Strata graph'))
+		return ok({ nodes: data.nodes.length })
+	} catch {
+		return err(new StrataError('invalid-format', 'This file is not a Strata graph'))
+	}
+}
+
+export type AssetRecord = ImageAsset | AudioAsset | ScriptAsset | PrefabAsset | GraphAsset
 export type AssetKind = AssetRecord['kind']
 
 type Inspection =
@@ -65,6 +86,7 @@ type Inspection =
 	| { readonly kind: 'audio'; readonly audio: AudioMeta }
 	| { readonly kind: 'script'; readonly script: ScriptMeta }
 	| { readonly kind: 'prefab'; readonly prefab: PrefabMeta }
+	| { readonly kind: 'graph'; readonly graph: GraphMeta }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -138,6 +160,10 @@ function inspectAsset(bytes: Uint8Array, name: string): Result<Inspection> {
 		const meta = inspectPrefab(bytes)
 		return meta.ok ? ok({ kind: 'prefab', prefab: meta.value }) : meta
 	}
+	if (name.toLowerCase().endsWith('.graph')) {
+		const meta = inspectGraph(bytes)
+		return meta.ok ? ok({ kind: 'graph', graph: meta.value }) : meta
+	}
 	if (name.toLowerCase().endsWith('.ts')) {
 		const meta = inspectScript(bytes)
 		return meta.ok ? ok({ kind: 'script', script: meta.value }) : meta
@@ -201,6 +227,11 @@ function parseRecord(raw: unknown): AssetRecord | undefined {
 		const meta = raw['prefab']
 		if (!isRecord(meta) || !isPositiveInteger(meta['entities'])) return undefined
 		return { id, name, folder, hash, size, kind: 'prefab', prefab: { entities: meta['entities'] } }
+	}
+	if (raw['kind'] === 'graph') {
+		const meta = raw['graph']
+		if (!isRecord(meta) || typeof meta['nodes'] !== 'number' || !Number.isInteger(meta['nodes']) || meta['nodes'] < 0) return undefined
+		return { id, name, folder, hash, size, kind: 'graph', graph: { nodes: meta['nodes'] } }
 	}
 	return undefined
 }
@@ -307,7 +338,9 @@ export class AssetLibrary {
 						? { ...common, kind: 'audio', audio: inspected.value.audio }
 						: inspected.value.kind === 'prefab'
 							? { ...common, kind: 'prefab', prefab: inspected.value.prefab }
-							: { ...common, kind: 'script', script: inspected.value.script }
+							: inspected.value.kind === 'graph'
+								? { ...common, kind: 'graph', graph: inspected.value.graph }
+								: { ...common, kind: 'script', script: inspected.value.script }
 			await this.#commit(new Map(this.#records).set(record.id, record))
 			return ok(record)
 		})
@@ -327,6 +360,29 @@ export class AssetLibrary {
 			const hash = await sha256Hex(bytes)
 			await this.#storage.write(blobPath(hash), bytes)
 			const updated: ScriptAsset = { ...record, hash, size: bytes.length, script: meta.value }
+			const next = new Map(this.#records).set(id, updated)
+			await this.#commit(next)
+			await this.#release([record], next)
+			return ok(updated)
+		})
+	}
+
+	/**
+	 * Replaces the content of a script or a graph. Other kinds cannot be edited this way.
+	 */
+	replaceContent(id: Guid, bytes: Uint8Array): Promise<Result<AssetRecord>> {
+		return this.#enqueue(async () => {
+			const record = this.#records.get(id)
+			if (record === undefined) return err(new StrataError('not-found', 'No such asset'))
+			if (record.kind !== 'script' && record.kind !== 'graph') return err(new StrataError('invalid-argument', 'Only scripts and graphs can be edited'))
+			if (bytes.length === 0) return err(new StrataError('invalid-argument', 'The file cannot be empty'))
+			const inspected = inspectAsset(bytes, record.name)
+			if (!inspected.ok) return inspected
+			if (inspected.value.kind !== record.kind) return err(new StrataError('invalid-format', 'The content does not match the file type'))
+			const hash = await sha256Hex(bytes)
+			await this.#storage.write(blobPath(hash), bytes)
+			const base = { id: record.id, name: record.name, folder: record.folder, hash, size: bytes.length }
+			const updated: AssetRecord = inspected.value.kind === 'graph' ? { ...base, kind: 'graph', graph: inspected.value.graph } : inspected.value.kind === 'script' ? { ...base, kind: 'script', script: inspected.value.script } : record
 			const next = new Map(this.#records).set(id, updated)
 			await this.#commit(next)
 			await this.#release([record], next)

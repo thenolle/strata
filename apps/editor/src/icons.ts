@@ -20,6 +20,7 @@ export type IconName =
 	| 'close'
 	| 'search'
 	| 'prefab'
+	| 'graph'
 
 type Part = readonly [tag: string, attributes: Readonly<Record<string, string>>, text?: string]
 
@@ -93,6 +94,12 @@ const ICONS: Readonly<Record<IconName, readonly Part[]>> = {
 	prefab: [
 		['path', { d: 'M8 1.5 14 4.7v6.6L8 14.5 2 11.3V4.7z', fill: '#5fb3d9', stroke: 'none' }],
 		['path', { d: 'M2 4.7 8 8l6-3.3M8 8v6.5', stroke: '#1f2329' }]
+	],
+	graph: [
+		['circle', { cx: '3.5', cy: '4', r: '1.8', fill: '#e2a15a', stroke: 'none' }],
+		['circle', { cx: '12.5', cy: '8', r: '1.8', fill: '#5fb3d9', stroke: 'none' }],
+		['circle', { cx: '3.5', cy: '12', r: '1.8', fill: '#c586c0', stroke: 'none' }],
+		['path', { d: 'M5 4.5C9 4.5 8 8 11 8M5 11.5C9 11.5 8 8 11 8' }]
 	],
 }
 

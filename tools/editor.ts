@@ -6,6 +6,7 @@ import { createApp, html, text } from '@gambrel/core'
 import { renderToString } from '@gambrel/view'
 import { Shell } from '../apps/editor/src/shell.tsx'
 import { bundleScripts, checkScript, compileScript } from './scripts.ts'
+import { buildNative } from './native-export.ts'
 import { Ide } from './ide.ts'
 
 const root = resolve(import.meta.dir, '..')
@@ -60,7 +61,7 @@ async function build(): Promise<boolean> {
 		for (const log of result.logs) console.error(log)
 		return false
 	}
-	for (const name of ['player', 'runner', 'runner-worker']) {
+	for (const name of ['player', 'runner', 'runner-worker', 'webplayer']) {
 		const built = await Bun.build({
 			entrypoints: [join(editor, `src/${name}.ts`)],
 			target: 'browser',
@@ -110,6 +111,12 @@ const app = createApp({ development: true })
 		}
 		const result = await bundleScripts(body)
 		return reply(result, result.ok ? 200 : 400)
+	})
+	.post('/api/export/native', async (ctx) => {
+		if (ctx.request.headers.get('origin') !== ctx.url.origin) return reply({ ok: false, error: 'Cross-origin requests are refused' }, 403)
+		const result = await buildNative(new Uint8Array(await ctx.request.arrayBuffer()), ctx.url.searchParams.get('target') ?? '')
+		if (!result.ok) return reply(result, 400)
+		return new Response(result.bytes as unknown as BodyInit, { headers: { 'content-type': 'application/octet-stream', 'content-disposition': `attachment; filename="${result.fileName}"`, 'cache-control': 'no-store' } })
 	})
 	.post('/api/check', async (ctx) => {
 		if (ctx.request.headers.get('origin') !== ctx.url.origin) return reply({ ok: false, output: 'Cross-origin requests are refused' }, 403)
