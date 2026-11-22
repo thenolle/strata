@@ -1,5 +1,5 @@
-import { renderLines } from './highlight.ts'
-import type { Completion, Definition, Diagnostic, IdeClient, Signature, TextEdit } from './ide-client.ts'
+import { renderGutter, renderLines } from './highlight.ts'
+import type { Completion, Definition, Diagnostic, HoverInfo, IdeClient, Signature, TextEdit } from './ide-client.ts'
 import { renderMarkdown } from './markdown.ts'
 import { applyTextEdits, autoClose, duplicateLines, findAll, findBracketMatch, indentLines, moveLines, toggleComment, type Edit } from './editing.ts'
 import { FindWidget, quickInput } from './find-widget.ts'
@@ -21,9 +21,11 @@ export interface CodeEditorOptions {
 	readonly client: IdeClient
 	readonly onChange: (text: string) => void
 	readonly onSave: () => void
+	readonly onRun: () => void
 	readonly onClose: () => void
 	readonly onDiagnostics: (diagnostics: readonly Diagnostic[]) => void
 	readonly onCursor: (line: number, column: number) => void
+	readonly onStatus: (text: string) => void
 }
 
 function visualColumn(line: string, column: number): number {
@@ -69,6 +71,12 @@ export class CodeEditor {
 		onReplaceAll: () => this.#replaceAll(),
 		onClose: () => this.#closeFind()
 	})
+	#renderedText = ''
+	#renderedMarks = ''
+	#renderedDiagnostics = ''
+	#gutterKey = ''
+	#measured = false
+	#hoverMark: Diagnostic | undefined
 	#matches: { readonly from: number; readonly to: number }[] = []
 	#current = -1
 	#marks: Diagnostic[] = []
@@ -174,16 +182,27 @@ export class CodeEditor {
 		this.#body.append(probe)
 		const width = probe.getBoundingClientRect().width / 100
 		probe.remove()
-		if (width > 0) this.#charWidth = width
+		if (width > 0) {
+			this.#charWidth = width
+			this.#measured = true
+		}
 	}
 
 	#render(): void {
 		const text = this.#input.value
-		this.#highlight.innerHTML = `${renderLines(text, [...this.#diagnostics, ...this.#marks])}\n`
+		const marks = this.#hoverMark === undefined ? this.#marks : [...this.#marks, this.#hoverMark]
+		const marksKey = JSON.stringify(marks)
+		if (text === this.#renderedText && marksKey === this.#renderedMarks && this.#diagnosticsKey === this.#renderedDiagnostics) return
+		this.#renderedText = text
+		this.#renderedMarks = marksKey
+		this.#renderedDiagnostics = this.#diagnosticsKey
+		this.#highlight.innerHTML = `${renderLines(text, [...this.#diagnostics, ...marks])}\n`
 		const count = text.split('\n').length
-		if (count !== this.#lineCount) {
+		const gutterKey = `${count}:${this.#diagnosticsKey}`
+		if (gutterKey !== this.#gutterKey) {
+			this.#gutterKey = gutterKey
 			this.#lineCount = count
-			this.#gutter.textContent = Array.from({ length: count }, (_, index) => String(index + 1)).join('\n')
+			this.#gutter.innerHTML = renderGutter(count, this.#diagnostics)
 		}
 	}
 
@@ -201,7 +220,6 @@ export class CodeEditor {
 
 	#insert(text: string): void {
 		this.#input.focus()
-		if (document.execCommand('insertText', false, text)) return
 		this.#input.setRangeText(text, this.#input.selectionStart, this.#input.selectionEnd, 'end')
 		this.#onInput()
 	}
@@ -325,8 +343,8 @@ export class CodeEditor {
 		if (character >= text.length) return
 		const problem = this.#diagnostics.find((item) => covers(item, line, character))
 		await this.#send()
-		const documentation = await this.#options.client.hover(this.#options.name, line, character).catch(() => '')
-		if (this.#disposed || (documentation === '' && problem === undefined)) return
+		const info = await this.#options.client.hover(this.#options.name, line, character).catch((): HoverInfo => ({ text: '' }))
+		if (this.#disposed || (info.text === '' && problem === undefined)) return
 		this.#tooltip.replaceChildren()
 		if (problem !== undefined) {
 			const error = document.createElement('div')
@@ -334,7 +352,17 @@ export class CodeEditor {
 			error.textContent = problem.message
 			this.#tooltip.append(error)
 		}
-		if (documentation !== '') this.#tooltip.append(renderMarkdown(documentation))
+		if (info.text !== '') {
+			this.#tooltip.append(renderMarkdown(info.text))
+			const hint = document.createElement('div')
+			hint.className = 'ide-tooltip-footer'
+			hint.textContent = 'F12 or Ctrl+click: go to definition'
+			this.#tooltip.append(hint)
+		}
+		if (info.range !== undefined) {
+			this.#hoverMark = { line: info.range.line, character: info.range.character, endLine: info.range.endLine, endCharacter: info.range.endCharacter, severity: -3, message: '' }
+			this.#render()
+		}
 		const body = this.#body.getBoundingClientRect()
 		this.#tooltip.hidden = false
 		const tip = this.#tooltip.getBoundingClientRect()
@@ -349,9 +377,14 @@ export class CodeEditor {
 	readonly #hideTooltip = (): void => {
 		clearTimeout(this.#hoverTimer)
 		this.#tooltip.hidden = true
+		if (this.#hoverMark !== undefined) {
+			this.#hoverMark = undefined
+			this.#render()
+		}
 	}
 
 	readonly #reportCursor = (): void => {
+		if (!this.#measured) this.#measure()
 		const at = this.#position()
 		this.#options.onCursor(at.line + 1, at.character + 1)
 		this.#updateMarks()
@@ -454,6 +487,12 @@ export class CodeEditor {
 		} else if (event.altKey && event.shiftKey && lower === 'f') {
 			event.preventDefault()
 			void this.#format()
+		} else if (command && key === 'Enter') {
+			event.preventDefault()
+			this.#options.onRun()
+		} else if (command && event.shiftKey && lower === 'i') {
+			event.preventDefault()
+			void this.#format()
 		} else if (key === 'F12') {
 			event.preventDefault()
 			const at = this.#position()
@@ -502,12 +541,16 @@ export class CodeEditor {
 	}
 
 	#replaceWhole(text: string): void {
+		const top = this.#input.scrollTop
+		const left = this.#input.scrollLeft
 		const caret = this.#input.selectionStart
 		this.#input.focus()
 		this.#input.select()
 		this.#insert(text)
 		const position = Math.min(caret, text.length)
 		this.#input.setSelectionRange(position, position)
+		this.#input.scrollTop = top
+		this.#input.scrollLeft = left
 	}
 
 	#select(from: number, to: number): void {
@@ -635,12 +678,25 @@ export class CodeEditor {
 		if (edits.length > 0) this.#replaceWhole(applyTextEdits(this.#input.value, edits))
 	}
 
+	/** Formats the whole document with the TypeScript formatter and reports the outcome through onStatus. */
+	formatDocument(): void {
+		void this.#format()
+	}
+
 	async #format(): Promise<void> {
 		await this.#send()
-		const edits = await this.#options.client.format(this.#options.name).catch((): readonly TextEdit[] => [])
-		if (edits.length === 0) return
-		const formatted = applyTextEdits(this.#input.value, edits)
-		if (formatted !== this.#input.value) this.#replaceWhole(formatted)
+		try {
+			const edits = await this.#options.client.format(this.#options.name)
+			const formatted = edits.length === 0 ? this.#input.value : applyTextEdits(this.#input.value, edits)
+			if (formatted === this.#input.value) {
+				this.#options.onStatus('Nothing to format: the document is already formatted')
+				return
+			}
+			this.#replaceWhole(formatted)
+			this.#options.onStatus('Formatted')
+		} catch (error: unknown) {
+			this.#options.onStatus(`Formatting failed: ${error instanceof Error ? error.message : String(error)}`)
+		}
 	}
 
 	#hideSignature(): void {

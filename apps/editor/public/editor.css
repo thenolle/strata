@@ -1276,3 +1276,133 @@ body {
   margin: 4px 0 0;
   font: 12px ui-monospace, Consolas, monospace;
 }
+
+.ide-inline {
+  margin-left: 2.5em;
+  font-style: italic;
+  user-select: none;
+}
+
+.ide-inline-error {
+  background: rgba(241, 76, 76, 0.1);
+  color: #f48771;
+}
+
+.ide-inline-warning {
+  background: rgba(204, 167, 0, 0.1);
+  color: #d7ba7d;
+}
+
+.gutter-error {
+  color: #f48771;
+  font-weight: 700;
+}
+
+.gutter-warning {
+  color: #d7ba7d;
+  font-weight: 700;
+}
+
+.gutter-error::before,
+  .gutter-warning::before {
+  content: '● ';
+  font-size: 8px;
+  vertical-align: middle;
+}
+
+.hover-range {
+  background: rgba(120, 160, 255, 0.18);
+  border-bottom: 1px solid rgba(120, 160, 255, 0.7);
+}
+
+.ide-tooltip {
+  max-width: 640px;
+}
+
+.ide-tooltip .md-code {
+  margin: 4px 0;
+}
+
+.ide-tooltip-footer {
+  margin-top: 6px;
+  padding-top: 4px;
+  border-top: 1px solid #2c3037;
+  color: #6f7885;
+  font-size: 11px;
+}
+
+.md-link {
+  color: #6cb1ff;
+  text-decoration: underline;
+}
+
+.ide-tooltip strong,
+.script-docs strong {
+  color: #ffffff;
+}
+
+.wb-run-config {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #8b93a0;
+  font-size: 12px;
+}
+
+.wb-run-config label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.wb-run-config input {
+  width: 110px;
+  padding: 2px 6px;
+  border: 1px solid #3a3f47;
+  border-radius: 4px;
+  background: #14161a;
+  color: inherit;
+  font: inherit;
+}
+
+.wb-run-config input[type='number'] {
+  width: 56px;
+}
+
+.wb-panel-tabs {
+  border-bottom: 1px solid #22262c;
+}
+
+.wb-panel-tabs-inner {
+  display: flex;
+  gap: 2px;
+  padding: 2px 8px 0;
+}
+
+.wb-panel-tab {
+  padding: 4px 10px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: #8b93a0;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.wb-panel-tab[data-active='true'] {
+  border-bottom-color: #5b9dff;
+  color: #e6e8eb;
+}
+
+.wb-problems {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.wb-output {
+  margin: 0;
+  padding: 6px 12px;
+  overflow: auto;
+  font: 12px/1.5 ui-monospace, Consolas, monospace;
+  white-space: pre-wrap;
+}

@@ -1,19 +1,58 @@
+import { tokenizeLine, type LineState } from './highlight.ts'
+
+const INLINE = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*\s][^*]*\*|\[[^\]]+\]\([^)]*\))/g
+
 export interface MarkdownOptions {
 	/** When set, code blocks get an Insert button. */
 	readonly onInsert?: (code: string) => void
 }
 
 function inline(parent: HTMLElement, text: string): void {
-	for (const [index, part] of text.split('`').entries()) {
-		if (part === '') continue
-		if (index % 2 === 1) {
-			const code = document.createElement('code')
-			code.textContent = part
-			parent.append(code)
+	let cursor = 0
+	for (const match of text.matchAll(INLINE)) {
+		const index = match.index ?? 0
+		if (index > cursor) parent.append(text.slice(cursor, index))
+		const part = match[0]
+		let element: HTMLElement
+		if (part.startsWith('`')) {
+			element = document.createElement('code')
+			element.textContent = part.slice(1, -1)
+		} else if (part.startsWith('**')) {
+			element = document.createElement('strong')
+			element.textContent = part.slice(2, -2)
+		} else if (part.startsWith('[')) {
+			element = document.createElement('span')
+			element.className = 'md-link'
+			element.textContent = part.slice(1, part.indexOf(']'))
 		} else {
-			parent.append(part)
+			element = document.createElement('em')
+			element.textContent = part.slice(1, -1)
+		}
+		parent.append(element)
+		cursor = index + part.length
+	}
+	if (cursor < text.length) parent.append(text.slice(cursor))
+}
+
+function highlighted(code: string): HTMLPreElement {
+	const pre = document.createElement('pre')
+	let state: LineState = 'code'
+	for (const [index, line] of code.split('\n').entries()) {
+		if (index > 0) pre.append('\n')
+		const result = tokenizeLine(line, state)
+		state = result.state
+		for (const token of result.tokens) {
+			if (token.kind === 'plain') {
+				pre.append(token.text)
+				continue
+			}
+			const span = document.createElement('span')
+			span.className = `tok-${token.kind}`
+			span.textContent = token.text
+			pre.append(span)
 		}
 	}
+	return pre
 }
 
 /**
@@ -46,9 +85,7 @@ export function renderMarkdown(source: string, options: MarkdownOptions = {}): D
 			const text = code.join('\n')
 			const block = document.createElement('div')
 			block.className = 'md-code'
-			const pre = document.createElement('pre')
-			pre.textContent = text
-			block.append(pre)
+			block.append(highlighted(text))
 			if (options.onInsert !== undefined) {
 				const button = document.createElement('button')
 				button.type = 'button'

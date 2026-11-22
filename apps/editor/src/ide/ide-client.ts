@@ -16,6 +16,11 @@ export interface Completion {
 	readonly sort: string
 }
 
+export interface HoverInfo {
+	readonly text: string
+	readonly range?: { readonly line: number; readonly character: number; readonly endLine: number; readonly endCharacter: number }
+}
+
 export interface TextEdit {
 	readonly line: number
 	readonly character: number
@@ -39,7 +44,7 @@ export interface Definition {
 export interface IdeClient {
 	sync(name: string, text: string): Promise<void>
 	completion(name: string, line: number, character: number): Promise<readonly Completion[]>
-	hover(name: string, line: number, character: number): Promise<string>
+	hover(name: string, line: number, character: number): Promise<HoverInfo>
 	diagnostics(name: string): Promise<readonly Diagnostic[]>
 	close(name: string): Promise<void>
 	definition(name: string, line: number, character: number): Promise<Definition | undefined>
@@ -50,7 +55,9 @@ export interface IdeClient {
 
 async function call<T>(action: string, body: unknown): Promise<T> {
 	const response = await fetch(`/api/ide/${action}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
-	return (await response.json()) as T
+	const data = (await response.json()) as T & { readonly ok?: boolean; readonly error?: string }
+	if (data.ok === false) throw new Error(data.error ?? 'The language server failed')
+	return data
 }
 
 /**
@@ -61,7 +68,10 @@ export const ideClient: IdeClient = {
 		await call('sync', { name, text })
 	},
 	completion: async (name, line, character) => (await call<{ readonly items?: Completion[] }>('completion', { name, line, character })).items ?? [],
-	hover: async (name, line, character) => (await call<{ readonly text?: string }>('hover', { name, line, character })).text ?? '',
+	hover: async (name, line, character) => {
+		const data = await call<{ readonly text?: string; readonly range?: HoverInfo['range'] }>('hover', { name, line, character })
+		return { text: data.text ?? '', ...(data.range === undefined ? {} : { range: data.range }) }
+	},
 	diagnostics: async (name) => (await call<{ readonly diagnostics?: Diagnostic[] }>('diagnostics', { name })).diagnostics ?? [],
 	close: async (name) => {
 		await call('close', { name })
