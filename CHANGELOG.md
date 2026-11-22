@@ -43,3 +43,4 @@
 - IDE: fuzzy completion with documentation and snippets, quick fixes, symbols, references, cross-file navigation and rename, word highlights, quick open, IDE command palette, project-wide search and replace. Script imports of packages are now refused.
 - Editor: multi-select with Ctrl/Shift-click, box select and Ctrl+A, group move, delete and duplicate. IDE: built-in spelling and import quick fixes.
 - Editor: multiple scenes with a scene switcher, new, rename and delete. Prefabs: save a selection as a prefab asset and instantiate it. Regression check for cameras on players.
+- Launcher: rename, duplicate, export and import projects as zip files, recent-first order, search, storage usage and protection.

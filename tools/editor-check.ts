@@ -8,6 +8,8 @@ import { World } from '../packages/core/src/index.ts'
 import { Collider } from '../packages/physics/src/index.ts'
 import { isDrawable } from '../packages/runtime/src/visibility.ts'
 import { Camera } from '../packages/scene/src/index.ts'
+import { packProject, unpackProject } from '../apps/editor/src/archive.ts'
+import { readZip, writeZip } from '../apps/editor/src/zip.ts'
 import { bundleScripts } from './scripts.ts'
 
 console.log('fuzzy', fuzzyScore('sp', 'setPosition'), (fuzzyScore('sp', 'spawn') ?? 0) > (fuzzyScore('sp', 'setPosition') ?? 0), fuzzyScore('xyz', 'setPosition'))
@@ -91,3 +93,28 @@ console.log('delete', (await world2.deleteScene('Level 2')).ok, (await world2.sc
 const asset = await project2.assets.importAsset('Hero.prefab', new TextEncoder().encode(prefab), 'Prefabs')
 const bad = await project2.assets.importAsset('bad.prefab', new TextEncoder().encode('{}'))
 console.log('asset', asset.ok ? asset.value.kind : 'failed', bad.ok)
+
+const zipped = writeZip([
+	{ name: 'a.txt', data: new TextEncoder().encode('hello') },
+	{ name: 'dir/b.bin', data: new Uint8Array([1, 2, 3]) }
+])
+const unzipped = readZip(zipped)
+console.log('zip', unzipped.ok ? unzipped.value.map((file) => `${file.name}:${file.data.length}`).join(',') : unzipped.error.message)
+const damaged = zipped.slice()
+damaged[36] = (damaged[36] ?? 0) ^ 255
+console.log('zip-corrupt', readZip(damaged).ok)
+
+const sourceStorage = new MemoryStorage()
+const originalResult = await Project.create(sourceStorage, 'Pack')
+if (!originalResult.ok) throw originalResult.error
+const original = originalResult.value
+await original.assets.importAsset('a.ts', new TextEncoder().encode('export default {}'))
+await original.saveScene('main', '{"x":1}')
+const packed = await packProject(sourceStorage)
+const restored = await unpackProject(packed.ok ? packed.value : new Uint8Array(), new MemoryStorage())
+console.log('archive', packed.ok, restored.ok && restored.value.name, restored.ok && restored.value.assets.list().length, restored.ok && (await restored.value.loadScene('main')).ok)
+const evil = writeZip([
+	{ name: '../evil', data: new Uint8Array([1]) },
+	{ name: 'project.json', data: new Uint8Array([1]) }
+])
+console.log('archive-evil', (await unpackProject(evil, new MemoryStorage())).ok)
