@@ -17,6 +17,15 @@ export interface Studio extends Disposable {
 	readonly menus: MenuRegistry
 }
 
+function worldPoint(args: unknown): { readonly x: number; readonly y: number } | undefined {
+	if (typeof args !== 'object' || args === null) return undefined
+	const world = (args as { readonly world?: unknown }).world
+	if (typeof world !== 'object' || world === null) return undefined
+	const { x, y } = world as { readonly x?: unknown; readonly y?: unknown }
+	if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)) return undefined
+	return { x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100 }
+}
+
 /**
  * Registers Studio's commands, default shortcuts, menus and the context keys that gate them.
  */
@@ -27,6 +36,7 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 	const keybindings = new KeybindingService(contexts)
 	const menus = new MenuRegistry()
 
+	contexts.set('gridVisible', true)
 	const syncContext = (): void => {
 		contexts.set('hasSelection', session.selection !== undefined)
 		contexts.set('isDirty', session.dirty)
@@ -36,16 +46,18 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 	syncContext()
 	store.add(session.changed.subscribe(syncContext))
 
-	const command = (id: string, title: string, category: string, run: () => void | Promise<void>, when?: string): void => {
+	const command = (id: string, title: string, category: string, run: (args?: unknown) => void | Promise<void>, when?: string): void => {
 		store.add(commands.register({ id, title, category, ...(when === undefined ? {} : { when }), run }))
 	}
 	command('workbench.action.showCommands', 'Show All Commands', 'View', hooks.openPalette)
 	command('workbench.action.showContextMenu', 'Show Context Menu', 'View', hooks.openContextMenu)
+	command('view.toggleGrid', 'Toggle Grid', 'View', () => contexts.set('gridVisible', contexts.get('gridVisible') !== true))
 	command('file.save', 'Save', 'File', hooks.save)
 	command('project.close', 'Close Project', 'File', hooks.close)
 	command('edit.undo', 'Undo', 'Edit', () => void session.undo(), 'canUndo')
 	command('edit.redo', 'Redo', 'Edit', () => void session.redo(), 'canRedo')
 	command('entity.add', 'Add Entity', 'Entity', () => void session.createEntity({}))
+	command('entity.addAt', 'Add Entity Here', 'Entity', (args) => void session.createEntity(worldPoint(args) ?? {}))
 	command(
 		'entity.addChild',
 		'Add Child Entity',
@@ -95,6 +107,15 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 	contribute('outline/context', { command: 'edit.undo', group: '3_history@1' })
 	contribute('outline/context', { command: 'edit.redo', group: '3_history@2' })
 	contribute('outline/context', { command: 'workbench.action.showCommands', group: '9_misc' })
+
+	contribute('viewport/context', { command: 'entity.addAt', group: '1_create@1' })
+	contribute('viewport/context', { command: 'entity.addChild', group: '1_create@2', when: 'hasSelection' })
+	contribute('viewport/context', { command: 'entity.rename', group: '2_modify@1', when: 'hasSelection' })
+	contribute('viewport/context', { command: 'entity.delete', group: '2_modify@2', when: 'hasSelection' })
+	contribute('viewport/context', { command: 'edit.undo', group: '3_history@1' })
+	contribute('viewport/context', { command: 'edit.redo', group: '3_history@2' })
+	contribute('viewport/context', { command: 'view.toggleGrid', title: 'Show Grid', group: '4_view', toggled: 'gridVisible' })
+	contribute('viewport/context', { command: 'workbench.action.showCommands', group: '9_misc' })
 
 	return { contexts, commands, keybindings, menus, dispose: () => store.dispose() }
 }

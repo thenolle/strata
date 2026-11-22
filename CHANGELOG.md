@@ -22,3 +22,4 @@
 - Tooling: `bun run merge` waits for checks and squash-merges the current pull request.
 - Menus package: contributed menus with groups, conditions, check items, submenus and a keyboard and pointer controller.
 - Editor: context menu with submenus, type-ahead, touch long-press and keyboard opening, wired to the hierarchy.
+- Editor: viewport context menu with picking, entity creation at the pointer and a grid toggle; panning moved to middle drag.
