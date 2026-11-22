@@ -32,9 +32,13 @@ const SELECTION_COLOR = packColor(1, 0.85, 0.3, 1)
 const GIZMO_X = packColor(0.95, 0.3, 0.3, 1)
 const GIZMO_Y = packColor(0.3, 0.85, 0.4, 1)
 const GIZMO_RING = packColor(1, 0.85, 0.3, 1)
+const MIN_SIZE = 4
+const RECT_HANDLES: readonly (readonly [number, number])[] = [
+	[-1, -1], [1, -1], [-1, 1], [1, 1], [0, -1], [0, 1], [-1, 0], [1, 0]
+]
 
-export type Tool = 'move' | 'rotate' | 'scale'
-type Handle = 'moveX' | 'moveY' | 'rotate' | 'scaleX' | 'scaleY'
+export type Tool = 'move' | 'rotate' | 'scale' | 'rect'
+type Handle = 'moveX' | 'moveY' | 'rotate' | 'scaleX' | 'scaleY' | 'rect'
 
 /**
  * A request to show the viewport's context menu. `x` and `y` are page coordinates, `world` is the point under the pointer.
@@ -82,6 +86,12 @@ interface Gizmo {
 	readonly axisX: number
 	readonly axisY: number
 	readonly distance: number
+	readonly hx: number
+	readonly hy: number
+	readonly width: number
+	readonly height: number
+	readonly anchorX: number
+	readonly anchorY: number
 }
 
 interface SpriteLayer {
@@ -135,6 +145,7 @@ export function startViewport(options: ViewportOptions): () => void {
 		const probe = new Vec3()
 		let drag: Drag | undefined
 		let gizmo: Gizmo | undefined
+		let lastRect: readonly [number, number] = [0, 0]
 		let lastX = 0
 		let lastY = 0
 		let lastStatus = 0
@@ -194,6 +205,23 @@ export function startViewport(options: ViewportOptions): () => void {
 			const line = 4 / camera.zoom
 			const dx = cursor.x - frame.x
 			const dy = cursor.y - frame.y
+			if (tool === 'rect') {
+				const matrix = session.transforms.worldMatrix(entity)
+				const extent = extentOf(entity)
+				const w = Math.hypot(matrix?.elements[0] ?? 1, matrix?.elements[1] ?? 0) * extent.w
+				const h = Math.hypot(matrix?.elements[4] ?? 0, matrix?.elements[5] ?? 1) * extent.h
+				const cos = Math.cos(frame.rotation)
+				const sin = Math.sin(frame.rotation)
+				const localX = dx * cos + dy * sin
+				const localY = -dx * sin + dy * cos
+				for (const [hx, hy] of RECT_HANDLES) {
+					if (Math.abs(localX - (hx * w) / 2) <= reach && Math.abs(localY - (hy * h) / 2) <= reach) {
+						lastRect = [hx, hy]
+						return 'rect'
+					}
+				}
+				return undefined
+			}
 			if (tool === 'rotate') return Math.abs(Math.hypot(dx, dy) - length * 0.8) <= reach ? 'rotate' : undefined
 			const cos = tool === 'scale' ? Math.cos(frame.rotation) : 1
 			const sin = tool === 'scale' ? Math.sin(frame.rotation) : 0
@@ -212,6 +240,11 @@ export function startViewport(options: ViewportOptions): () => void {
 			const sin = Math.sin(frame.rotation)
 			const dx = cursor.x - frame.x
 			const dy = cursor.y - frame.y
+			const matrix = session.transforms.worldMatrix(entity)
+			const extent = extentOf(entity)
+			const rectWidth = Math.hypot(matrix?.elements[0] ?? 1, matrix?.elements[1] ?? 0) * extent.w
+			const rectHeight = Math.hypot(matrix?.elements[4] ?? 0, matrix?.elements[5] ?? 1) * extent.h
+			const [hx, hy] = lastRect
 			return {
 				handle,
 				entity,
@@ -225,7 +258,13 @@ export function startViewport(options: ViewportOptions): () => void {
 				sy: transform.sy,
 				axisX: cos,
 				axisY: sin,
-				distance: Math.max(1e-3, handle === 'scaleX' ? dx * cos + dy * sin : -dx * sin + dy * cos)
+				distance: Math.max(1e-3, handle === 'scaleX' ? dx * cos + dy * sin : -dx * sin + dy * cos),
+				hx,
+				hy,
+				width: rectWidth,
+				height: rectHeight,
+				anchorX: frame.x - hx * (rectWidth / 2) * cos + hy * (rectHeight / 2) * sin,
+				anchorY: frame.y - hx * (rectWidth / 2) * sin - hy * (rectHeight / 2) * cos,
 			}
 		}
 
@@ -248,6 +287,21 @@ export function startViewport(options: ViewportOptions): () => void {
 				case 'scaleY':
 					session.setTransform(g.entity, { sy: g.sy * Math.max(0.01, (-dx * g.axisY + dy * g.axisX) / g.distance) })
 					break
+				case 'rect': {
+					const cos = g.axisX
+					const sin = g.axisY
+					const px = cursor.x - g.anchorX
+					const py = cursor.y - g.anchorY
+					const width = g.hx === 0 ? g.width : Math.max(MIN_SIZE, (px * cos + py * sin) * g.hx)
+					const height = g.hy === 0 ? g.height : Math.max(MIN_SIZE, (-px * sin + py * cos) * g.hy)
+					const centerX = g.anchorX + g.hx * (width / 2) * cos - g.hy * (height / 2) * sin
+					const centerY = g.anchorY + g.hx * (width / 2) * sin + g.hy * (height / 2) * cos
+					session.setWorldPlacement(g.entity, centerX, centerY, {
+						...(g.hx === 0 ? {} : { sx: g.sx * (width / g.width) }),
+						...(g.hy === 0 ? {} : { sy: g.sy * (height / g.height) })
+					})
+					break
+				}
 			}
 		}
 
@@ -258,6 +312,18 @@ export function startViewport(options: ViewportOptions): () => void {
 			const length = GIZMO_LENGTH / camera.zoom
 			const thick = 2 / camera.zoom
 			const box = (GIZMO_HANDLE * 2) / camera.zoom
+			if (tool === 'rect') {
+				const matrix = session.transforms.worldMatrix(entity)
+				const extent = extentOf(entity)
+				const w = Math.hypot(matrix?.elements[0] ?? 1, matrix?.elements[1] ?? 0) * extent.w
+				const h = Math.hypot(matrix?.elements[4] ?? 0, matrix?.elements[5] ?? 1) * extent.h
+				const cos = Math.cos(frame.rotation)
+				const sin = Math.sin(frame.rotation)
+				for (const [hx, hy] of RECT_HANDLES) {
+					gizmoBatch.add(frame.x + hx * (w / 2) * cos - hy * (h / 2) * sin, frame.y + hx * (w / 2) * sin + hy * (h / 2) * cos, box, box, frame.rotation, GIZMO_RING)
+				}
+				return
+			}
 			if (tool === 'rotate') {
 				const radius = length * 0.8
 				const chord = ((2 * Math.PI * radius) / RING_SEGMENTS) * 1.15

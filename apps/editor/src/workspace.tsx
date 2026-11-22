@@ -10,10 +10,14 @@ import { attachLongPress } from './long-press.ts'
 import { logger } from './logger.ts'
 import { CommandPalette } from './palette.tsx'
 import { createStudio } from './studio.ts'
-import { startViewport } from './viewport.ts'
 import { Explorer } from './explorer.tsx'
 import { PlayOverlay } from './play.tsx'
 import { Workbench } from './workbench.tsx'
+import { applyLayout, DEFAULT_LAYOUT, loadLayout, saveLayout, type Layout } from './layout.ts'
+import { attachSplitter } from './splitter.ts'
+import { IconButton } from './ui.tsx'
+import { VIEWPORTS, loadMode, saveMode, type ViewMode } from './viewport-modes.ts'
+import type { ViewportOptions } from './viewport.ts'
 
 function isTextInput(target: EventTarget | null): boolean {
 	return target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
@@ -38,6 +42,38 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 	const ideRequest = signal<{ readonly asset: Guid; readonly n: number } | undefined>(undefined)
 	const reveal = signal<string | undefined>(undefined)
 	let rootElement: HTMLElement | undefined
+	const layout: Layout = loadLayout()
+	const toolbar = signal(0)
+	let viewportHost: HTMLElement | undefined
+	let stopViewport: (() => void) | undefined
+	let placeholder: HTMLElement | undefined
+
+	const split = (handle: Element, key: keyof Layout, axis: 'x' | 'y', direction: 1 | -1, min: number, max: () => number): void => {
+		const refresh = (): void => {
+			if (rootElement !== undefined) applyLayout(rootElement, layout)
+		}
+		onCleanup(
+			attachSplitter(handle as HTMLElement, {
+				axis,
+				direction,
+				min,
+				max,
+				value: () => layout[key],
+				apply: (value) => {
+					layout[key] = value
+					refresh()
+				},
+				commit: () => saveLayout(layout),
+				reset: () => {
+					layout[key] = DEFAULT_LAYOUT[key]
+					refresh()
+					saveLayout(layout)
+				}
+			})
+		)
+	}
+	const width = (): number => rootElement?.clientWidth ?? 1200
+	const height = (): number => rootElement?.clientHeight ?? 800
 
 	const save = async (): Promise<void> => {
 		const result = await session.save()
@@ -88,6 +124,39 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 			playing.set(true)
 		}
 	})
+	studio.contexts.set('viewMode', loadMode())
+	const viewportOptions = (host: HTMLElement): ViewportOptions => ({
+		host,
+		session,
+		logger: logger.child('viewport'),
+		onStatus: (text) => status.set(text),
+		isGridVisible: () => studio.contexts.get('gridVisible') === true,
+		getTool: () => {
+			const tool = studio.contexts.get('tool')
+			return tool === 'rotate' || tool === 'scale' || tool === 'rect' ? tool : 'move'
+		},
+		onContextMenu: (request) => openMenu({ menuId: 'viewport/context', x: request.x, y: request.y, args: request }),
+		onDropAsset: (drop) => run('asset.addToScene', drop)
+	})
+	const mountViewport = (): void => {
+		const host = viewportHost
+		if (host === undefined) return
+		stopViewport?.()
+		stopViewport = undefined
+		placeholder?.remove()
+		placeholder = undefined
+		const mode: ViewMode = studio.contexts.get('viewMode') === '3d' ? '3d' : '2d'
+		const factory = VIEWPORTS[mode]
+		if (factory !== undefined) {
+			stopViewport = factory(viewportOptions(host))
+			return
+		}
+		placeholder = document.createElement('div')
+		placeholder.className = 'viewport-placeholder'
+		placeholder.textContent = 'The 3D view arrives with the 3D renderer. Your scene is unchanged. Switch back to 2D to keep editing.'
+		host.append(placeholder)
+		status.set('3D view is not available yet')
+	}
 
 	const run = (id: string, args?: unknown): void => {
 		void studio.commands.execute(id, args).then((result) => notice.set(result.ok ? '' : result.error.message))
@@ -99,10 +168,18 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 			ref={(element: Element) => {
 				const root = element as HTMLElement
 				rootElement = root
+				applyLayout(root, layout)
 				const subscription = session.changed.subscribe((kind) => {
 					fieldRevision.update((value) => value + 1)
 					if (kind !== 'transform') outlineRevision.update((value) => value + 1)
 					selected.set(session.selection)
+				})
+				const contextSubscription = studio.contexts.changed.subscribe((name) => {
+					if (name === 'viewMode') {
+						saveMode(studio.contexts.get('viewMode') === '3d' ? '3d' : '2d')
+						mountViewport()
+					}
+					if (name === 'viewMode' || name === 'tool') toolbar.update((value) => value + 1)
 				})
 				const onKeyDown = (event: KeyboardEvent): void => {
 					if (playing() || ide()) return
@@ -133,7 +210,9 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 				document.addEventListener('focusout', onFocusOut)
 				onCleanup(() => {
 					subscription.dispose()
+					contextSubscription.dispose()
 					studio.dispose()
+					stopViewport?.()
 					detachLongPress()
 					removeEventListener('keydown', onKeyDown)
 					removeEventListener('beforeunload', onBeforeUnload)
@@ -204,22 +283,36 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 			<div
 				class="viewport"
 				ref={(element: Element) => {
-					const stop = startViewport({
-						host: element as HTMLElement,
-						session,
-						logger: logger.child('viewport'),
-						onStatus: (text) => status.set(text),
-						isGridVisible: () => studio.contexts.get('gridVisible') === true,
-						onContextMenu: (request) => openMenu({ menuId: 'viewport/context', x: request.x, y: request.y, args: request }),
-						onDropAsset: (drop) => run('asset.addToScene', drop),
-						getTool: () => {
-							const tool = studio.contexts.get('tool')
-							return tool === 'rotate' || tool === 'scale' ? tool : 'move'
-						},
-					})
-					onCleanup(stop)
+					viewportHost = element as HTMLElement
+					mountViewport()
 				}}
-			></div>
+			>
+				<div class="viewport-toolbar">
+					{() => {
+						toolbar()
+						const tool = studio.contexts.get('tool')
+						const mode = studio.contexts.get('viewMode')
+						return (
+							<div class="toolbar-group">
+								<IconButton icon="move" title="Move (W)" active={tool === 'move'} onClick={() => run('tool.move')} />
+								<IconButton icon="rotate" title="Rotate (E)" active={tool === 'rotate'} onClick={() => run('tool.rotate')} />
+								<IconButton icon="scale" title="Scale (R)" active={tool === 'scale'} onClick={() => run('tool.scale')} />
+								<IconButton icon="rect" title="Rect: resize with handles (T)" active={tool === 'rect'} onClick={() => run('tool.rect')} />
+								<span class="toolbar-divider"></span>
+								<button type="button" class="mode-button" data-active={String(mode !== '3d')} title="2D view" onClick={() => run('view.mode2d')}>
+									2D
+								</button>
+								<button type="button" class="mode-button" data-active={String(mode === '3d')} title="3D view" onClick={() => run('view.mode3d')}>
+									3D
+								</button>
+							</div>
+						)
+					}}
+				</div>
+			</div>
+			<div class="splitter splitter-col" data-edge="outline" ref={(handle: Element) => split(handle, 'outline', 'x', 1, 160, () => width() - layout.inspector - 320)}></div>
+			<div class="splitter splitter-col" data-edge="inspector" ref={(handle: Element) => split(handle, 'inspector', 'x', -1, 200, () => width() - layout.outline - 320)}></div>
+			<div class="splitter splitter-row" data-edge="assets" ref={(handle: Element) => split(handle, 'assets', 'y', -1, 90, () => height() - 44 - 28 - 160)}></div>
 			<Explorer
 				session={session}
 				run={(id, args) => run(id, args)}
@@ -253,7 +346,7 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 				)
 			}}
 			{() => (playing() ? <PlayOverlay session={session} onClose={() => playing.set(false)} /> : null)}
-			{() => (ide() ? <Workbench session={session} request={ideRequest} run={(id, args) => run(id, args)} reveal={reveal} onClose={() => ide.set(false)} /> : null)}
+			{() => (ide() ? <Workbench session={session} request={ideRequest} run={(id, args) => run(id, args)} reveal={reveal} split={split} onClose={() => ide.set(false)} /> : null)}
 		</div>
 	)
 }

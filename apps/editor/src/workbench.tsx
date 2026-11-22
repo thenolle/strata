@@ -4,10 +4,12 @@ import type { Child } from '@gambrel/view'
 import type { Guid } from '@strata/core'
 import type { EditorSession } from '@strata/editor-core'
 import { Explorer } from './explorer.tsx'
+import { createIcon } from './icons.ts'
 import { CodeEditor } from './ide/code-editor.ts'
 import guide from './ide/docs.txt'
 import { ideClient, type Diagnostic } from './ide/ide-client.ts'
 import { renderMarkdown } from './ide/markdown.ts'
+import type { Layout } from './layout.ts'
 
 interface Doc {
 	readonly id: Guid
@@ -27,6 +29,7 @@ export function Workbench(props: {
 	readonly request: () => { readonly asset: Guid; readonly n: number } | undefined
 	readonly run: (command: string, args?: unknown) => void
 	readonly reveal: () => string | undefined
+	readonly split: (handle: Element, key: keyof Layout, axis: 'x' | 'y', direction: 1 | -1, min: number, max: () => number) => void
 	readonly onClose: () => void
 }): Child {
 	const open = new Map<Guid, Doc>()
@@ -162,6 +165,7 @@ export function Workbench(props: {
 									class="wb-activity-button"
 									data-active={String(sidebar() && view() === id)}
 									title={id === 'files' ? 'Files' : 'Documentation'}
+									ref={(element: Element) => element.append(createIcon(id === 'files' ? 'files' : 'book', 22))}
 									onClick={() => {
 										if (view() === id) sidebar.update((visible) => !visible)
 										else {
@@ -170,38 +174,43 @@ export function Workbench(props: {
 										}
 									}}
 								>
-									{id === 'files' ? 'Files' : 'Docs'}
 								</button>
 							))}
 						</nav>
 					)}
 					{() =>
 						!sidebar() ? null : view() === 'docs' ? (
-							<aside
-								class="wb-side script-docs"
-								ref={(element: Element) => {
-									element.append(
-										renderMarkdown(guide, {
-											onInsert: (code) => {
+							<div class="wb-sidewrap">
+								<aside
+									class="wb-side script-docs"
+									ref={(element: Element) => {
+										element.append(
+											renderMarkdown(guide, {
+												onInsert: (code) => {
 												const id = active.peek()
 												if (id !== undefined) open.get(id)?.editor.insertText(code)
 											}
 										})
-									)
-								}}
-							></aside>
-						) : (
-							<div class="wb-side">
-								<Explorer
-									session={props.session}
-									kinds={['script']}
-									run={props.run}
-									reveal={props.reveal}
-									onNotice={(text) => message.set(text)}
-									onOpen={(asset) => {
-										if (asset.kind === 'script') void openScript(asset.id)
+										)
 									}}
-								/>
+								></aside>
+								<div class="splitter splitter-col wb-handle" ref={(handle: Element) => props.split(handle, 'ideSide', 'x', 1, 180, () => 640)}></div>
+							</div>
+						) : (
+							<div class="wb-sidewrap">
+								<div class="wb-side">
+									<Explorer
+										session={props.session}
+										kinds={['script']}
+										run={props.run}
+										reveal={props.reveal}
+										onNotice={(text) => message.set(text)}
+										onOpen={(asset) => {
+											if (asset.kind === 'script') void openScript(asset.id)
+										}}
+									/>
+								</div>
+								<div class="splitter splitter-col wb-handle" ref={(handle: Element) => props.split(handle, 'ideSide', 'x', 1, 180, () => 640)}></div>
 							</div>
 						)
 					}
@@ -235,6 +244,7 @@ export function Workbench(props: {
 						{() => (tabs().length === 0 ? <p class="wb-empty">Open a script from Files, or create one with New script.</p> : null)}
 					</div>
 					<div class="wb-problems">
+						<div class="splitter splitter-row wb-problems-handle" ref={(handle: Element) => props.split(handle, 'ideProblems', 'y', -1, 60, () => 500)}></div>
 						<div class="wb-panel-title">
 							{() => {
 								tick()

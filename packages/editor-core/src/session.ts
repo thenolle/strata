@@ -490,6 +490,25 @@ export class EditorSession implements Disposable {
 		this.setTransform(entity, { x: local.x, y: local.y })
 	}
 
+	/**
+	 * Places an entity at a world position and changes other transform fields in the same undoable step.
+	 * Dragging a resize handle uses it, so one drag is one undo.
+	 */
+	setWorldPlacement(entity: Entity, x: number, y: number, patch: Readonly<Partial<TransformData>>): void {
+		const link = this.world.get(entity, Parent)
+		const parentMatrix = link === undefined ? undefined : this.transforms.worldMatrix(link.parent)
+		let localX = x
+		let localY = y
+		if (parentMatrix !== undefined) {
+			const inverse = parentMatrix.clone()
+			if (!inverse.invert()) return
+			const local = inverse.transformPoint(this.#scratch.set(x, y, 0))
+			localX = local.x
+			localY = local.y
+		}
+		this.setTransform(entity, { ...patch, x: localX, y: localY })
+	}
+
 	undo(): boolean {
 		const command = this.#history.undo()
 		if (command === undefined) return false
