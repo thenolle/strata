@@ -4,6 +4,7 @@ import type { EditorSession } from '@strata/editor-core'
 import { ActionMap, InputManager } from '@strata/input'
 import { Vec2, Vec3 } from '@strata/math'
 import { Camera2D, SpriteBatch, createRenderer, fitCanvasToDisplay, packColor, type Renderer } from '@strata/renderer'
+import { attachLongPress } from './long-press.ts'
 
 const UNIT = 32
 const MIN_ZOOM = 0.05
@@ -23,11 +24,23 @@ const X_AXIS_COLOR = packColor(0.9, 0.3, 0.3, 0.8)
 const Y_AXIS_COLOR = packColor(0.3, 0.8, 0.4, 0.8)
 const SELECTION_COLOR = packColor(1, 0.85, 0.3, 1)
 
+/**
+ * A request to show the viewport's context menu. `x` and `y` are page coordinates, `world` is the point under the pointer.
+ */
+export interface ViewportMenuRequest {
+	readonly x: number
+	readonly y: number
+	readonly world: { readonly x: number; readonly y: number }
+	readonly entity: Entity | undefined
+}
+
 export interface ViewportOptions {
 	readonly host: HTMLElement
 	readonly session: EditorSession
 	readonly logger: Logger
 	readonly onStatus: (text: string) => void
+	readonly isGridVisible: () => boolean
+	readonly onContextMenu: (request: ViewportMenuRequest) => void
 }
 
 interface Drag {
@@ -38,7 +51,7 @@ interface Drag {
 
 /**
  * Mounts the scene viewport into a host element and returns a function that tears it down.
- * Left click selects, left drag moves, middle or right drag pans, and the wheel zooms around the cursor.
+ * Left click selects, left drag moves, middle drag pans, the wheel zooms around the cursor, and right click opens the context menu.
  */
 export function startViewport(options: ViewportOptions): () => void {
 	const { host, session, logger, onStatus } = options
@@ -49,6 +62,7 @@ export function startViewport(options: ViewportOptions): () => void {
 	let frameId = 0
 	let renderer: Renderer | undefined
 	let input: InputManager | undefined
+	let detach: (() => void) | undefined
 
 	const begin = async (): Promise<void> => {
 		const created = await createRenderer(canvas, { logger: logger.child('renderer') })
@@ -93,6 +107,23 @@ export function startViewport(options: ViewportOptions): () => void {
 			return undefined
 		}
 
+		const openMenuAt = (clientX: number, clientY: number): void => {
+			drag = undefined
+			const hit = pick(cursor)
+			session.select(hit)
+			options.onContextMenu({ x: clientX, y: clientY, world: { x: cursor.x, y: cursor.y }, entity: hit })
+		}
+		const onContextMenu = (event: MouseEvent): void => {
+			event.preventDefault()
+			openMenuAt(event.clientX, event.clientY)
+		}
+		canvas.addEventListener('contextmenu', onContextMenu)
+		const detachLongPress = attachLongPress(canvas, (_target, x, y) => openMenuAt(x, y))
+		detach = () => {
+			canvas.removeEventListener('contextmenu', onContextMenu)
+			detachLongPress()
+		}
+
 		const frame = (now: number): void => {
 			if (disposed) return
 			manager.update()
@@ -104,7 +135,7 @@ export function startViewport(options: ViewportOptions): () => void {
 			const pointer = manager.pointers.primary
 			if (pointer !== undefined) {
 				camera.screenToWorld(pointer.x, pointer.y, width, height, cursor)
-				if (buttons.isDown(1) || buttons.isDown(2)) {
+				if (buttons.isDown(1)) {
 					camera.x -= (pointer.x - lastX) / camera.zoom
 					camera.y += (pointer.y - lastY) / camera.zoom
 					camera.screenToWorld(pointer.x, pointer.y, width, height, cursor)
@@ -140,10 +171,12 @@ export function startViewport(options: ViewportOptions): () => void {
 			const halfWidth = width / (2 * camera.zoom)
 			const halfHeight = height / (2 * camera.zoom)
 			const thickness = 1 / camera.zoom
-			let step = 64
-			while ((Math.max(halfWidth, halfHeight) * 2) / step > MAX_GRID_LINES) step *= 2
-			for (let x = Math.floor((camera.x - halfWidth) / step) * step; x <= camera.x + halfWidth; x += step) grid.add(x, camera.y, thickness, halfHeight * 2, 0, GRID_COLOR)
-			for (let y = Math.floor((camera.y - halfHeight) / step) * step; y <= camera.y + halfHeight; y += step) grid.add(camera.x, y, halfWidth * 2, thickness, 0, GRID_COLOR)
+			if (options.isGridVisible()) {
+				let step = 64
+				while ((Math.max(halfWidth, halfHeight) * 2) / step > MAX_GRID_LINES) step *= 2
+				for (let x = Math.floor((camera.x - halfWidth) / step) * step; x <= camera.x + halfWidth; x += step) grid.add(x, camera.y, thickness, halfHeight * 2, 0, GRID_COLOR)
+				for (let y = Math.floor((camera.y - halfHeight) / step) * step; y <= camera.y + halfHeight; y += step) grid.add(camera.x, y, halfWidth * 2, thickness, 0, GRID_COLOR)
+			}
 			grid.add(0, camera.y, thickness * 2, halfHeight * 2, 0, Y_AXIS_COLOR)
 			grid.add(camera.x, 0, halfWidth * 2, thickness * 2, 0, X_AXIS_COLOR)
 			for (const row of session.rows()) {
@@ -184,6 +217,7 @@ export function startViewport(options: ViewportOptions): () => void {
 	return () => {
 		disposed = true
 		cancelAnimationFrame(frameId)
+		detach?.()
 		input?.dispose()
 		renderer?.dispose()
 		canvas.remove()

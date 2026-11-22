@@ -182,7 +182,9 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 						host: element as HTMLElement,
 						session,
 						logger: logger.child('viewport'),
-						onStatus: (text) => status.set(text)
+						onStatus: (text) => status.set(text),
+						isGridVisible: () => studio.contexts.get('gridVisible') === true,
+						onContextMenu: (request) => openMenu({ menuId: 'viewport/context', x: request.x, y: request.y, args: request })
 					})
 					onCleanup(stop)
 				}}
