@@ -39,3 +39,5 @@
 - Editor: resizable panels with remembered sizes, SVG icon set and icon explorer, Rect tool for visual resizing, viewport toolbar and a 2D and 3D mode switch.
 - IDE: find and replace, go to line, auto-close brackets, comment toggle, move and duplicate lines, indent selections, bracket matching, go to definition, signature help, rename and format. Context menus now appear above the IDE.
 - IDE: test run with a sandboxed runner and Output panel, inline error messages and gutter markers, richer hover, working format with status. Fixes for slow rendering and scroll jumps.
+- IDE: scripts can import other scripts (bundled for play and test run, resolved by the language server), test run in a web worker, diagnostics polled only when something changed.
+- IDE: scripts can import other scripts (bundled for play and test run, resolved by the language server), test run in a web worker, diagnostics polled only when something changed.

@@ -7,6 +7,7 @@ import type { EditorSession } from '@strata/editor-core'
 import { AudioSource } from '@strata/gameplay'
 import { Sprite, saveScene } from '@strata/scene'
 import { ScriptSource } from '@strata/scripting'
+import { bundleScript, collectScripts, scriptPath } from './ide/bundle-client.ts'
 import type { FrameAsset, FromFrame, ToFrame } from './play-protocol.ts'
 
 type Prepared = { readonly ok: true; readonly message: ToFrame; readonly transfer: ArrayBuffer[] } | { readonly ok: false; readonly error: string }
@@ -15,11 +16,6 @@ function hint(status: string): string {
 	if (status.includes(' 0 drawn')) return `${status} · nothing to draw`
 	if (status.includes(' 0 players')) return `${status} · select your entity and click Make player`
 	return status
-}
-
-async function compile(source: string): Promise<{ readonly ok: true; readonly code: string } | { readonly ok: false; readonly error: string }> {
-	const response = await fetch('/api/compile', { method: 'POST', body: source })
-	return (await response.json()) as { readonly ok: true; readonly code: string } | { readonly ok: false; readonly error: string }
 }
 
 /**
@@ -36,6 +32,7 @@ async function prepare(session: EditorSession): Promise<Prepared> {
 	const assets: FrameAsset[] = []
 	const scripts: { id: string; code: string }[] = []
 	const transfer: ArrayBuffer[] = []
+	let files: Record<string, string> | undefined
 	for (const id of ids) {
 		const record = session.project.assets.get(id as Guid)
 		if (record === undefined) continue
@@ -45,7 +42,8 @@ async function prepare(session: EditorSession): Promise<Prepared> {
 		assets.push({ record, bytes: copy })
 		transfer.push(copy)
 		if (record.kind === 'script') {
-			const compiled = await compile(new TextDecoder().decode(bytes.value))
+			files ??= await collectScripts(session.project.assets)
+			const compiled = await bundleScript(files, scriptPath(record))
 			if (!compiled.ok) return { ok: false, error: `${record.name}: ${compiled.error}` }
 			scripts.push({ id: record.id, code: compiled.code })
 		}

@@ -46,6 +46,11 @@ try {
 	console.log('definition', definition?.external?.file, definition?.external?.text.includes('setPosition'))
 	await ide.sync('check', 'const   x   =   1\n')
 	console.log('format', (await ide.format('check')).length > 0)
+	await ide.syncProject([{ path: 'lib/math.ts', text: 'export const double = (value: number): number => value * 2\n' }])
+	await ide.sync('imp', "import { double } from './lib/math'\nconst x: string = double(1)\nexport default x\n", 'Mover.ts')
+	const imported = await ide.diagnostics('imp')
+	console.log('import', imported.some((item) => item.message.includes('not assignable')), !imported.some((item) => item.message.includes('Cannot find module')))
+	await ide.close('imp')
 } finally {
 	ide.dispose()
 }

@@ -26,6 +26,7 @@ export interface CodeEditorOptions {
 	readonly onDiagnostics: (diagnostics: readonly Diagnostic[]) => void
 	readonly onCursor: (line: number, column: number) => void
 	readonly onStatus: (text: string) => void
+	readonly path: () => string
 }
 
 function visualColumn(line: string, column: number): number {
@@ -98,6 +99,7 @@ export class CodeEditor {
 	#completeTimer: ReturnType<typeof setTimeout> | undefined
 	#hoverTimer: ReturnType<typeof setTimeout> | undefined
 	#poll: ReturnType<typeof setInterval> | undefined
+	#diagnosticsStale = true
 
 	constructor(options: CodeEditorOptions) {
 		this.#options = options
@@ -160,6 +162,11 @@ export class CodeEditor {
 		this.#input.focus()
 		this.#input.setSelectionRange(offset, offset)
 		this.#input.scrollTop = Math.max(0, line * LINE_HEIGHT - 80)
+	}
+
+	/** Marks the problems list as out of date, for when another script changed. */
+	invalidate(): void {
+		this.#diagnosticsStale = true
 	}
 
 	dispose(): void {
@@ -243,17 +250,20 @@ export class CodeEditor {
 		const text = this.#input.value
 		if (text === this.#sentText) return
 		this.#sentText = text
-		await this.#options.client.sync(this.#options.name, text).catch(() => undefined)
+		this.#diagnosticsStale = true
+		await this.#options.client.sync(this.#options.name, text, this.#options.path()).catch(() => undefined)
 	}
 
 	async #refreshDiagnostics(): Promise<void> {
-		if (this.#disposed || this.#refreshing) return
+		if (this.#disposed || this.#refreshing || !this.#diagnosticsStale || this.element.offsetParent === null) return
 		this.#refreshing = true
+		this.#diagnosticsStale = false
 		try {
 			const list = await this.#options.client.diagnostics(this.#options.name).catch(() => this.#diagnostics)
 			const key = JSON.stringify(list)
 			if (key === this.#diagnosticsKey || this.#disposed) return
 			this.#diagnosticsKey = key
+			this.#diagnosticsStale = true
 			this.#diagnostics = list
 			this.#render()
 			this.#options.onDiagnostics(list)

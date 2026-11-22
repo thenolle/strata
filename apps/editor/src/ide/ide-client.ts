@@ -42,7 +42,8 @@ export interface Definition {
 }
 
 export interface IdeClient {
-	sync(name: string, text: string): Promise<void>
+	sync(name: string, text: string, path?: string): Promise<void>
+	project(files: readonly { readonly path: string; readonly text: string }[]): Promise<void>
 	completion(name: string, line: number, character: number): Promise<readonly Completion[]>
 	hover(name: string, line: number, character: number): Promise<HoverInfo>
 	diagnostics(name: string): Promise<readonly Diagnostic[]>
@@ -64,8 +65,11 @@ async function call<T>(action: string, body: unknown): Promise<T> {
  * Talks to the editor server's language server bridge.
  */
 export const ideClient: IdeClient = {
-	sync: async (name, text) => {
-		await call('sync', { name, text })
+	sync: async (name, text, path) => {
+		await call('sync', { name, text, ...(path === undefined ? {} : { path }) })
+	},
+	project: async (files) => {
+		await call('project', { files })
 	},
 	completion: async (name, line, character) => (await call<{ readonly items?: Completion[] }>('completion', { name, line, character })).items ?? [],
 	hover: async (name, line, character) => {
