@@ -8,6 +8,7 @@ export interface StudioHooks {
 	readonly close: () => void
 	readonly openPalette: () => void
 	readonly openContextMenu: () => void
+	readonly play: () => void
 }
 
 export interface Studio extends Disposable {
@@ -95,6 +96,10 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 		const selected = session.selection
 		if (selected !== undefined) session.setSprite(selected, asset.id)
 	}, 'hasSelection')
+	command('play.start', 'Play Scene', 'Game', hooks.play)
+	command('entity.addPlayer', 'Add Player', 'Entity', () => void session.createEntity({ name: 'Player', y: 120, components: { body: {}, collider: {}, controller: {} } }))
+	command('entity.addPlatform', 'Add Platform', 'Entity', () => void session.createEntity({ name: 'Platform', y: -100, components: { body: { kind: 'static' }, collider: { width: 256, height: 32 } } }))
+	command('entity.addCamera', 'Add Camera', 'Entity', () => void session.createEntity({ name: 'Camera', components: { camera: {} } }))
 
 	const added = keybindings.addAll([
 		{ keys: 'ctrl+shift+p', command: 'workbench.action.showCommands' },
@@ -109,6 +114,7 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 		{ keys: 'alt+n', command: 'entity.add' },
 		{ keys: 'alt+shift+n', command: 'entity.addChild', when: 'hasSelection' },
 		{ keys: 'mod+d', command: 'entity.duplicate', when: 'hasSelection && !textInputFocus' },
+		{ keys: 'f5', command: 'play.start' },
 	])
 	if (!added.ok) throw added.error
 
@@ -126,6 +132,7 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 	contribute('outline/context', { command: 'edit.redo', group: '3_history@2' })
 	contribute('outline/context', { command: 'workbench.action.showCommands', group: '9_misc' })
 	contribute('outline/context', { command: 'entity.duplicate', group: '2_modify@0' })
+	contribute('outline/context', { command: 'play.start', group: '5_play' })
 
 	contribute('viewport/context', { command: 'entity.addAt', group: '1_create@1' })
 	contribute('viewport/context', { command: 'entity.addChild', group: '1_create@2', when: 'hasSelection' })
@@ -136,6 +143,10 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 	contribute('viewport/context', { command: 'view.toggleGrid', title: 'Show Grid', group: '4_view', toggled: 'gridVisible' })
 	contribute('viewport/context', { command: 'workbench.action.showCommands', group: '9_misc' })
 	contribute('viewport/context', { command: 'entity.duplicate', group: '2_modify@0', when: 'hasSelection' })
+	contribute('viewport/context', { command: 'entity.addPlayer', group: '1_create@3' })
+	contribute('viewport/context', { command: 'entity.addPlatform', group: '1_create@4' })
+	contribute('viewport/context', { command: 'entity.addCamera', group: '1_create@5' })
+	contribute('viewport/context', { command: 'play.start', group: '5_play' })
 
 	contribute('assets/context', { command: 'asset.addToScene', group: '1_create' })
 	contribute('assets/context', { command: 'asset.assignToSelection', group: '2_modify' })

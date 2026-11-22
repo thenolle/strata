@@ -1,0 +1,13 @@
+{
+  "name": "@strata/gameplay",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": {
+    "@strata/core": "workspace:*",
+    "@strata/physics": "workspace:*",
+    "@strata/scene": "workspace:*"
+  },
+  "strata": { "platform": "universal" }
+}

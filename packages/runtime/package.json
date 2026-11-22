@@ -1,0 +1,17 @@
+{
+  "name": "@strata/runtime",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": {
+    "@strata/core": "workspace:*",
+    "@strata/gameplay": "workspace:*",
+    "@strata/input": "workspace:*",
+    "@strata/physics": "workspace:*",
+    "@strata/project": "workspace:*",
+    "@strata/renderer": "workspace:*",
+    "@strata/scene": "workspace:*"
+  },
+  "strata": { "platform": "browser" }
+}

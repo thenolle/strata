@@ -14,8 +14,11 @@
     "@strata/input": "workspace:*",
     "@strata/math": "workspace:*",
     "@strata/menus": "workspace:*",
+    "@strata/scene": "workspace:*",
+    "@strata/physics": "workspace:*",
     "@strata/project": "workspace:*",
     "@strata/renderer": "workspace:*",
+    "@strata/runtime": "workspace:*",
     "@strata/storage-opfs": "workspace:*"
   },
   "strata": { "platform": "browser" }
