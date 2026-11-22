@@ -1,5 +1,5 @@
 import { CommandRegistry, ContextKeys, KeybindingService } from '@strata/commands'
-import { DisposableStore, type Disposable } from '@strata/core'
+import { DisposableStore, type Disposable, type Guid } from '@strata/core'
 import type { EditorSession } from '@strata/editor-core'
 import { MenuRegistry } from '@strata/menus'
 
@@ -15,6 +15,12 @@ export interface Studio extends Disposable {
 	readonly commands: CommandRegistry
 	readonly keybindings: KeybindingService
 	readonly menus: MenuRegistry
+}
+
+function assetArg(args: unknown): string | undefined {
+	if (typeof args !== 'object' || args === null) return undefined
+	const asset = (args as { readonly asset?: unknown }).asset
+	return typeof asset === 'string' ? asset : undefined
 }
 
 function worldPoint(args: unknown): { readonly x: number; readonly y: number } | undefined {
@@ -80,6 +86,28 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 		'hasSelection'
 	)
 	command('entity.delete', 'Delete Selected Entity', 'Entity', () => void session.deleteSelected(), 'hasSelection')
+	const imageAsset = (args: unknown): { readonly id: Guid; readonly name: string } => {
+		const id = assetArg(args)
+		const record = id === undefined ? undefined : session.project.assets.get(id as Guid)
+		if (record === undefined) throw new Error('Choose an asset in the Assets panel first')
+		if (record.kind !== 'image') throw new Error('Only images can be used as sprites')
+		return { id: record.id, name: record.name }
+	}
+	command('asset.addToScene', 'Add Asset to Scene', 'Asset', (args) => {
+		const asset = imageAsset(args)
+		session.createEntity({ name: asset.name.replace(/\.[^.]+$/, ''), asset: asset.id, ...(worldPoint(args) ?? {}) })
+	})
+	command(
+		'asset.assignToSelection',
+		'Assign Asset to Selected Entity',
+		'Asset',
+		(args) => {
+			const asset = imageAsset(args)
+			const selected = session.selection
+			if (selected !== undefined) session.setSprite(selected, asset.id)
+		},
+		'hasSelection'
+	)
 
 	const added = keybindings.addAll([
 		{ keys: 'ctrl+shift+p', command: 'workbench.action.showCommands' },
@@ -116,6 +144,8 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 	contribute('viewport/context', { command: 'edit.redo', group: '3_history@2' })
 	contribute('viewport/context', { command: 'view.toggleGrid', title: 'Show Grid', group: '4_view', toggled: 'gridVisible' })
 	contribute('viewport/context', { command: 'workbench.action.showCommands', group: '9_misc' })
+	contribute('assets/context', { command: 'asset.addToScene', group: '1_create' })
+	contribute('assets/context', { command: 'asset.assignToSelection', group: '2_modify' })
 
 	return { contexts, commands, keybindings, menus, dispose: () => store.dispose() }
 }

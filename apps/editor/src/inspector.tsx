@@ -61,6 +61,29 @@ function TextField(props: FieldProps & { readonly read: () => string; readonly w
 	)
 }
 
+function SpriteField(props: FieldProps & { readonly session: EditorSession; readonly entity: Entity }): Child {
+	return (
+		<label class="field">
+			<span>Image</span>
+			<select
+				ref={(element: Element) => {
+					const select = element as HTMLSelectElement
+					effect(() => {
+						props.revision()
+						if (document.activeElement === select) return
+						const images = props.session.project.assets.list().filter((asset) => asset.kind === 'image')
+						select.replaceChildren(new Option('(none)', ''), ...images.map((asset) => new Option(asset.name, asset.id)))
+						select.value = props.session.spriteOf(props.entity)
+					})
+					const commit = (): void => props.session.setSprite(props.entity, select.value)
+					select.addEventListener('change', commit)
+					onCleanup(() => select.removeEventListener('change', commit))
+				}}
+			></select>
+		</label>
+	)
+}
+
 /**
  * Edits the selected entity. Inputs are created once per selection and refreshed through effects,
  * so typing never loses focus while the viewport changes values.
@@ -86,6 +109,8 @@ export function Inspector(props: {
 						<NumberField label="Rotation" revision={revision} read={() => session.rotationDegrees(entity)} write={(value) => session.setRotationDegrees(entity, value)} />
 						<NumberField label="Scale X" revision={revision} read={() => session.getTransform(entity)?.sx ?? 1} write={(value) => session.setTransform(entity, { sx: value })} />
 						<NumberField label="Scale Y" revision={revision} read={() => session.getTransform(entity)?.sy ?? 1} write={(value) => session.setTransform(entity, { sy: value })} />
+						<h2>Sprite</h2>
+						<SpriteField session={session} entity={entity} revision={revision} label="Image" />
 					</div>
 				)
 			}}

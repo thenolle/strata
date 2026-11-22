@@ -1,10 +1,12 @@
-import type { Entity, Logger } from '@strata/core'
+import type { Entity, Guid, Logger } from '@strata/core'
 import { entityIndex } from '@strata/core'
 import type { EditorSession } from '@strata/editor-core'
 import { ActionMap, InputManager } from '@strata/input'
 import { Vec2, Vec3 } from '@strata/math'
-import { Camera2D, SpriteBatch, createRenderer, fitCanvasToDisplay, packColor, type Renderer } from '@strata/renderer'
+import { Camera2D, SpriteBatch, createRenderer, decodeImage, fitCanvasToDisplay, packColor, type Renderer, type Texture } from '@strata/renderer'
 import { attachLongPress } from './long-press.ts'
+
+export const ASSET_MIME = 'application/x-strata-asset'
 
 const UNIT = 32
 const MIN_ZOOM = 0.05
@@ -34,6 +36,11 @@ export interface ViewportMenuRequest {
 	readonly entity: Entity | undefined
 }
 
+export interface AssetDrop {
+	readonly asset: string
+	readonly world: { readonly x: number; readonly y: number }
+}
+
 export interface ViewportOptions {
 	readonly host: HTMLElement
 	readonly session: EditorSession
@@ -41,6 +48,7 @@ export interface ViewportOptions {
 	readonly onStatus: (text: string) => void
 	readonly isGridVisible: () => boolean
 	readonly onContextMenu: (request: ViewportMenuRequest) => void
+	readonly onDropAsset: (drop: AssetDrop) => void
 }
 
 interface Drag {
@@ -49,9 +57,15 @@ interface Drag {
 	readonly dy: number
 }
 
+interface SpriteLayer {
+	readonly texture: Texture
+	readonly batch: SpriteBatch
+}
+
 /**
  * Mounts the scene viewport into a host element and returns a function that tears it down.
- * Left click selects, left drag moves, middle drag pans, the wheel zooms around the cursor, and right click opens the context menu.
+ * Left click selects, left drag moves, middle drag pans, the wheel zooms around the cursor, right click opens the context menu,
+ * and image assets dropped from the assets panel become sprite entities.
  */
 export function startViewport(options: ViewportOptions): () => void {
 	const { host, session, logger, onStatus } = options
@@ -85,13 +99,38 @@ export function startViewport(options: ViewportOptions): () => void {
 		const grid = new SpriteBatch(256)
 		const outlines = new SpriteBatch(64)
 		const shapes = new SpriteBatch(256)
+		const layers = new Map<string, SpriteLayer>()
+		const textures = new Map<string, Texture | null>()
 		const cursor = new Vec2()
 		const before = new Vec2()
+		const dropPoint = new Vec2()
 		const probe = new Vec3()
 		let drag: Drag | undefined
 		let lastX = 0
 		let lastY = 0
 		let lastStatus = 0
+
+		const extentOf = (entity: Entity): { readonly w: number; readonly h: number } => {
+			const asset = session.spriteOf(entity)
+			const record = asset === '' ? undefined : session.project.assets.get(asset as Guid)
+			return record?.kind === 'image' ? { w: record.image.width, h: record.image.height } : { w: UNIT, h: UNIT }
+		}
+
+		const textureFor = (assetId: string): Texture | undefined => {
+			const known = textures.get(assetId)
+			if (known !== undefined) return known ?? undefined
+			textures.set(assetId, null)
+			void (async () => {
+				const record = session.project.assets.get(assetId as Guid)
+				if (record === undefined || record.kind !== 'image') return
+				const bytes = await session.project.assets.read(record.id)
+				if (!bytes.ok || disposed) return
+				const bitmap = await decodeImage(bytes.value)
+				if (disposed) return
+				textures.set(assetId, active.createTexture(bitmap, 'nearest'))
+			})().catch((error: unknown) => logger.error('Sprite image failed to load', error))
+			return undefined
+		}
 
 		const pick = (point: Vec2): Entity | undefined => {
 			const rows = session.rows()
@@ -102,7 +141,8 @@ export function startViewport(options: ViewportOptions): () => void {
 				const inverse = matrix.clone()
 				if (!inverse.invert()) continue
 				inverse.transformPoint(probe.set(point.x, point.y, 0))
-				if (Math.abs(probe.x) <= UNIT / 2 && Math.abs(probe.y) <= UNIT / 2) return row.entity
+				const extent = extentOf(row.entity)
+				if (Math.abs(probe.x) <= extent.w / 2 && Math.abs(probe.y) <= extent.h / 2) return row.entity
 			}
 			return undefined
 		}
@@ -117,10 +157,28 @@ export function startViewport(options: ViewportOptions): () => void {
 			event.preventDefault()
 			openMenuAt(event.clientX, event.clientY)
 		}
+		const onDragOver = (event: DragEvent): void => {
+			const transfer = event.dataTransfer
+			if (transfer === null || !transfer.types.includes(ASSET_MIME)) return
+			event.preventDefault()
+			transfer.dropEffect = 'copy'
+		}
+		const onDrop = (event: DragEvent): void => {
+			const asset = event.dataTransfer?.getData(ASSET_MIME)
+			if (asset === undefined || asset === '') return
+			event.preventDefault()
+			const rect = canvas.getBoundingClientRect()
+			camera.screenToWorld((event.clientX - rect.left) * (canvas.width / rect.width), (event.clientY - rect.top) * (canvas.height / rect.height), canvas.width, canvas.height, dropPoint)
+			options.onDropAsset({ asset, world: { x: dropPoint.x, y: dropPoint.y } })
+		}
 		canvas.addEventListener('contextmenu', onContextMenu)
+		canvas.addEventListener('dragover', onDragOver)
+		canvas.addEventListener('drop', onDrop)
 		const detachLongPress = attachLongPress(canvas, (_target, x, y) => openMenuAt(x, y))
 		detach = () => {
 			canvas.removeEventListener('contextmenu', onContextMenu)
+			canvas.removeEventListener('dragover', onDragOver)
+			canvas.removeEventListener('drop', onDrop)
 			detachLongPress()
 		}
 
@@ -168,6 +226,7 @@ export function startViewport(options: ViewportOptions): () => void {
 			grid.clear()
 			outlines.clear()
 			shapes.clear()
+			for (const layer of layers.values()) layer.batch.clear()
 			const halfWidth = width / (2 * camera.zoom)
 			const halfHeight = height / (2 * camera.zoom)
 			const thickness = 1 / camera.zoom
@@ -183,22 +242,31 @@ export function startViewport(options: ViewportOptions): () => void {
 				const matrix = session.transforms.worldMatrix(row.entity)
 				if (matrix === undefined) continue
 				const m = matrix.elements
+				const extent = extentOf(row.entity)
 				const centerX = m[12] ?? 0
 				const centerY = m[13] ?? 0
-				const sizeX = Math.hypot(m[0] ?? 0, m[1] ?? 0) * UNIT
-				const sizeY = Math.hypot(m[4] ?? 0, m[5] ?? 0) * UNIT
+				const sizeX = Math.hypot(m[0] ?? 0, m[1] ?? 0) * extent.w
+				const sizeY = Math.hypot(m[4] ?? 0, m[5] ?? 0) * extent.h
 				const rotation = Math.atan2(m[1] ?? 0, m[0] ?? 0)
 				if (row.entity === session.selection) outlines.add(centerX, centerY, sizeX + 6 / camera.zoom, sizeY + 6 / camera.zoom, rotation, SELECTION_COLOR)
-				shapes.add(centerX, centerY, sizeX, sizeY, rotation, ENTITY_COLORS[entityIndex(row.entity) % ENTITY_COLORS.length] ?? 0xffffffff)
+				const assetId = session.spriteOf(row.entity)
+				const texture = assetId === '' ? undefined : textureFor(assetId)
+				if (assetId !== '' && texture !== undefined) {
+					let layer = layers.get(assetId)
+					if (layer === undefined) {
+						layer = { texture, batch: new SpriteBatch(64) }
+						layers.set(assetId, layer)
+					}
+					layer.batch.add(centerX, centerY, sizeX, sizeY, rotation, 0xffffffff)
+				} else {
+					shapes.add(centerX, centerY, sizeX, sizeY, rotation, ENTITY_COLORS[entityIndex(row.entity) % ENTITY_COLORS.length] ?? 0xffffffff)
+				}
 			}
+			const spriteDraws = [...layers.values()].filter((layer) => layer.batch.count > 0).map((layer) => ({ texture: layer.texture, batch: layer.batch }))
 			active.render({
 				clearColor: [0.06, 0.07, 0.08, 1],
 				viewProjection,
-				draws: [
-					{ texture: white, batch: grid },
-					{ texture: white, batch: outlines },
-					{ texture: white, batch: shapes }
-				]
+				draws: [{ texture: white, batch: grid }, { texture: white, batch: outlines }, { texture: white, batch: shapes }, ...spriteDraws]
 			})
 			if (now - lastStatus > STATUS_INTERVAL_MS) {
 				lastStatus = now

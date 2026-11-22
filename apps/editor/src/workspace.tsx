@@ -11,6 +11,7 @@ import { logger } from './logger.ts'
 import { CommandPalette } from './palette.tsx'
 import { createStudio } from './studio.ts'
 import { startViewport } from './viewport.ts'
+import { AssetsPanel } from './assets-panel.tsx'
 
 function isTextInput(target: EventTarget | null): boolean {
 	return target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
@@ -50,7 +51,8 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 	const openFor = (element: HTMLElement, x: number, y: number, keyboard = false): void => {
 		const entity = element.dataset['entity']
 		if (entity !== undefined) session.select(Number(entity) as Entity)
-		openMenu({ menuId: element.dataset['menu'] ?? '', x, y, keyboard })
+		const asset = element.dataset['asset']
+		openMenu({ menuId: element.dataset['menu'] ?? '', x, y, keyboard, ...(asset === undefined ? {} : { args: { asset } }) })
 	}
 
 	const showContextMenu = (): void => {
@@ -184,11 +186,13 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 						logger: logger.child('viewport'),
 						onStatus: (text) => status.set(text),
 						isGridVisible: () => studio.contexts.get('gridVisible') === true,
-						onContextMenu: (request) => openMenu({ menuId: 'viewport/context', x: request.x, y: request.y, args: request })
+						onContextMenu: (request) => openMenu({ menuId: 'viewport/context', x: request.x, y: request.y, args: request }),
+						onDropAsset: (drop) => run('asset.addToScene', drop),
 					})
 					onCleanup(stop)
 				}}
 			></div>
+			<AssetsPanel session={session} onNotice={(text) => notice.set(text)} />
 			<aside class="panel inspector" aria-label="Inspector">
 				<Inspector session={session} selected={selected} revision={fieldRevision} />
 			</aside>
