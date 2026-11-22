@@ -377,3 +377,38 @@ body {
   color: #8b93a0;
   font: 12px monospace;
 }
+
+.play-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  grid-template-rows: 40px minmax(0, 1fr);
+  background: #0f1114;
+}
+
+.play-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  border-bottom: 1px solid #2c3037;
+  background: #1a1d22;
+  color: #8b93a0;
+}
+
+.play-bar .spacer {
+  flex: 1;
+}
+
+.play-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.component-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}

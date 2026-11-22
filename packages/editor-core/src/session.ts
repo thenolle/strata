@@ -1,14 +1,16 @@
-import { Emitter, Identity, Logger, StrataError, World, assignIdentity, createGuid, nullSink, ok, restoreWorld, snapshotEntities, type Disposable, type Entity, type Guid, type Result } from '@strata/core'
+import { Emitter, Identity, Logger, StrataError, World, assignIdentity, createGuid, nullSink, ok, restoreWorld, snapshotEntities, type ComponentData, type ComponentRegistry, type Disposable, type Entity, type FieldSchema, type Guid, type Result } from '@strata/core'
 import { Vec3, degToRad, radToDeg, trig, wrapAngle } from '@strata/math'
 import type { Project } from '@strata/project'
-import { Name, Parent, Transform, TransformSystem, createSceneRegistry, loadScene, saveScene, Sprite, type TransformData } from '@strata/scene'
+import { Name, Parent, Transform, TransformSystem, loadScene, saveScene, Sprite, type TransformData } from '@strata/scene'
+import { createGameRegistry } from '@strata/gameplay'
 import { History, type UndoableCommand } from './history.ts'
 
 export const MAIN_SCENE = 'main'
 const MAX_NAME_LENGTH = 128
 const DUPLICATE_OFFSET = 16
 
-export type ChangeKind = 'structure' | 'selection' | 'name' | 'transform' | 'sprite' | 'assets' | 'saved'
+export type RegisteredComponent = ReturnType<ComponentRegistry['definitions']> extends Iterable<infer D> ? D : never
+export type ChangeKind = 'structure' | 'selection' | 'name' | 'transform' | 'sprite' | 'component' | 'assets' | 'saved'
 
 export interface EntityRow {
 	readonly entity: Entity
@@ -24,6 +26,7 @@ export interface CreateEntityOptions {
 	readonly y?: number
 	readonly select?: boolean
 	readonly asset?: string
+	readonly components?: Readonly<Record<string, Readonly<Record<string, unknown>>>>
 }
 
 interface SpawnData {
@@ -33,6 +36,7 @@ interface SpawnData {
 	readonly y: number
 	readonly parent: Guid | undefined
 	readonly asset: string
+	readonly components: Readonly<Record<string, Readonly<Record<string, unknown>>>>
 }
 
 interface ValueCommand<V> extends UndoableCommand {
@@ -46,7 +50,7 @@ interface ValueCommand<V> extends UndoableCommand {
 export class EditorSession implements Disposable {
 	readonly project: Project
 	readonly world = new World()
-	readonly registry = createSceneRegistry()
+	readonly registry = createGameRegistry()
 	readonly transforms: TransformSystem
 	readonly changed = new Emitter<ChangeKind>()
 	readonly #logger: Logger
@@ -127,6 +131,7 @@ export class EditorSession implements Disposable {
 			y: options.y ?? 0,
 			parent: options.parent === undefined ? undefined : this.#guidOf(options.parent),
 			asset: options.asset ?? '',
+			components: options.components ?? {},
 		}
 		const select = options.select !== false
 		this.#perform({
@@ -178,9 +183,9 @@ export class EditorSession implements Disposable {
 		return this.#selection === undefined ? 0 : this.deleteEntity(this.#selection)
 	}
 
-		/**
-	 * Copies an entity with its descendants, offset slightly, and selects the copy. Returns the copy's root.
-	 */
+	/**
+ * Copies an entity with its descendants, offset slightly, and selects the copy. Returns the copy's root.
+ */
 	duplicate(entity: Entity): Entity | undefined {
 		const rootGuid = this.#guidOf(entity)
 		if (rootGuid === undefined || !this.#isPersistent(entity)) return undefined
@@ -314,6 +319,43 @@ export class EditorSession implements Disposable {
 		this.#announce('assets')
 	}
 
+	componentValue(entity: Entity, definition: RegisteredComponent, field: string): unknown {
+		return (this.world.get(entity, definition) as unknown as Record<string, unknown> | undefined)?.[field]
+	}
+
+	/**
+	 * Adds or removes a component. Removing remembers its values, so undo restores them.
+	 */
+	setComponent(entity: Entity, definition: RegisteredComponent, present: boolean): void {
+		const guid = this.#guidOf(entity)
+		if (guid === undefined || this.world.has(entity, definition) === present) return
+		const current = this.world.get(entity, definition) as unknown as Record<string, unknown> | undefined
+		const saved = current === undefined ? undefined : { ...current }
+		const apply = (add: boolean): void => {
+			const target = this.#resolve(guid)
+			if (target === undefined) return
+			if (add) {
+				if (!this.world.has(target, definition)) this.world.add(target, definition, saved as Partial<ComponentData<FieldSchema>> | undefined)
+			} else {
+				this.world.remove(target, definition)
+			}
+		}
+		this.#perform({ kind: 'component', label: `${present ? 'Add' : 'Remove'} ${definition.name}`, execute: () => apply(present), undo: () => apply(!present) })
+	}
+
+	setField(entity: Entity, definition: RegisteredComponent, field: string, value: number | string): void {
+		const guid = this.#guidOf(entity)
+		const data = this.world.get(entity, definition) as unknown as Record<string, unknown> | undefined
+		if (guid === undefined || data === undefined || !(field in definition.schema) || data[field] === value) return
+		this.#perform(
+			this.#valueCommand<unknown>('component', `field:${guid}:${definition.name}:${field}`, `Edit ${definition.name}`, data[field], value, (next) => {
+				const target = this.#resolve(guid)
+				const stored = target === undefined ? undefined : (this.world.get(target, definition) as unknown as Record<string, unknown> | undefined)
+				if (stored !== undefined) stored[field] = next
+			})
+		)
+	}
+
 	/**
 	 * Moves an entity so its origin sits at a world position, converting through the parent's transform.
 	 */
@@ -433,6 +475,10 @@ export class EditorSession implements Disposable {
 		this.world.add(entity, Name, { value: data.name })
 		this.world.add(entity, Transform, { x: data.x, y: data.y })
 		if (data.asset !== '') this.world.add(entity, Sprite, { asset: data.asset })
+		for (const [name, init] of Object.entries(data.components)) {
+			const definition = this.registry.get(name)
+			if (definition !== undefined && !this.world.has(entity, definition)) this.world.add(entity, definition, init as Partial<ComponentData<FieldSchema>>)
+		}
 		const parent = data.parent === undefined ? undefined : this.#resolve(data.parent)
 		if (parent !== undefined) this.transforms.setParent(entity, parent)
 		this.#guids.set(data.guid, entity)

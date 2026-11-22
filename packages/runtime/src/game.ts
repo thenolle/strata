@@ -1,0 +1,215 @@
+import { FixedTimestep, Logger, World, nullSink, type Disposable, type Entity, type Guid, type Result, ok } from '@strata/core'
+import { Controller, createGameRegistry, updateControllers, type ControllerInput } from '@strata/gameplay'
+import { ActionMap, InputManager } from '@strata/input'
+import { Collider, Physics } from '@strata/physics'
+import type { AssetLibrary } from '@strata/project'
+import { Camera2D, SpriteBatch, createRenderer, decodeImage, fitCanvasToDisplay, packColor, type Renderer, type Texture } from '@strata/renderer'
+import { Camera, Sprite, TransformSystem, loadScene } from '@strata/scene'
+
+const UNIT = 32
+const GRAVITY = -900
+const MAX_FRAME_SECONDS = 0.25
+const COLORS = [
+	packColor(0.36, 0.62, 0.95),
+	packColor(0.45, 0.8, 0.55),
+	packColor(0.95, 0.62, 0.3),
+	packColor(0.8, 0.5, 0.9),
+	packColor(0.95, 0.45, 0.5),
+	packColor(0.4, 0.8, 0.85)
+]
+
+export interface GameOptions {
+	readonly canvas: HTMLCanvasElement
+	readonly assets: AssetLibrary
+	readonly sceneText: string
+	readonly logger?: Logger
+}
+
+interface Layer {
+	readonly texture: Texture
+	readonly batch: SpriteBatch
+}
+
+/**
+ * Plays a scene: loads it into its own world, runs controllers, physics and transforms at a fixed rate, and draws it.
+ * It never touches the editor's world, so a play session cannot change the scene being edited.
+ */
+export class Game implements Disposable {
+	readonly world: World
+	readonly #options: GameOptions
+	readonly #logger: Logger
+	readonly #renderer: Renderer
+	readonly #transforms: TransformSystem
+	readonly #physics: Physics
+	readonly #input: InputManager
+	readonly #timestep = new FixedTimestep(60)
+	readonly #white: Texture
+	readonly #shapes = new SpriteBatch(256)
+	readonly #layers = new Map<string, Layer>()
+	readonly #textures = new Map<string, Texture | null>()
+	readonly #camera = new Camera2D()
+	#running = false
+	#disposed = false
+	#frameId = 0
+	#last = 0
+	#jump = false
+
+	readonly #controls: ControllerInput = {
+		axisX: () => this.#axis('ArrowLeft', 'KeyA', 'ArrowRight', 'KeyD'),
+		axisY: () => this.#axis('ArrowDown', 'KeyS', 'ArrowUp', 'KeyW'),
+		consumeJump: () => {
+			const requested = this.#jump
+			this.#jump = false
+			return requested
+		}
+	}
+
+	private constructor(options: GameOptions, logger: Logger, world: World, renderer: Renderer) {
+		this.#options = options
+		this.#logger = logger
+		this.world = world
+		this.#renderer = renderer
+		this.#transforms = new TransformSystem(world, logger.child('transforms'))
+		this.#physics = new Physics(world, { gravityY: GRAVITY, setPosition: (entity, x, y) => this.#transforms.setLocal(entity, { x, y }) })
+		this.#input = new InputManager(options.canvas, new ActionMap())
+		this.#white = renderer.createTexture({ width: 1, height: 1, data: new Uint8Array([255, 255, 255, 255]) }, 'nearest')
+		this.#transforms.update()
+	}
+
+	static async create(options: GameOptions): Promise<Result<Game>> {
+		const logger = options.logger ?? new Logger(nullSink, 'game')
+		const world = new World()
+		const loaded = loadScene(world, createGameRegistry(), options.sceneText)
+		if (!loaded.ok) {
+			world.dispose()
+			return loaded
+		}
+		const created = await createRenderer(options.canvas, { logger: logger.child('renderer') })
+		if (!created.ok) {
+			world.dispose()
+			return created
+		}
+		return ok(new Game(options, logger, world, created.value))
+	}
+
+	start(): void {
+		if (this.#running || this.#disposed) return
+		this.#running = true
+		this.#last = performance.now()
+		this.#frameId = requestAnimationFrame(this.#frame)
+	}
+
+	stop(): void {
+		this.#running = false
+		cancelAnimationFrame(this.#frameId)
+	}
+
+	dispose(): void {
+		if (this.#disposed) return
+		this.stop()
+		this.#disposed = true
+		this.#input.dispose()
+		this.#renderer.dispose()
+		this.#transforms.dispose()
+		this.world.dispose()
+	}
+
+	#axis(negativeA: string, negativeB: string, positiveA: string, positiveB: string): number {
+		const keys = this.#input.keyboard
+		return (keys.isDown(positiveA) || keys.isDown(positiveB) ? 1 : 0) - (keys.isDown(negativeA) || keys.isDown(negativeB) ? 1 : 0)
+	}
+
+	readonly #frame = (now: number): void => {
+		if (!this.#running) return
+		const seconds = Math.min(MAX_FRAME_SECONDS, (now - this.#last) / 1000)
+		this.#last = now
+		this.#input.update()
+		const keys = this.#input.keyboard
+		if (keys.wasPressed('Space') || keys.wasPressed('ArrowUp') || keys.wasPressed('KeyW')) this.#jump = true
+		try {
+			this.#timestep.advance(seconds, (step) => {
+				updateControllers(this.world, this.#controls)
+				this.#physics.step(step)
+				this.#transforms.update()
+			})
+			this.#draw()
+		} catch (error: unknown) {
+			this.#logger.error('Game frame failed', error)
+			this.stop()
+			return
+		}
+		this.#frameId = requestAnimationFrame(this.#frame)
+	}
+
+	#extent(entity: Entity): { readonly w: number; readonly h: number } {
+		const asset = this.world.get(entity, Sprite)?.asset ?? ''
+		const record = asset === '' ? undefined : this.#options.assets.get(asset as Guid)
+		if (record?.kind === 'image') return { w: record.image.width, h: record.image.height }
+		const collider = this.world.get(entity, Collider)
+		if (collider === undefined) return { w: UNIT, h: UNIT }
+		return collider.shape === 'circle' ? { w: collider.radius * 2, h: collider.radius * 2 } : { w: collider.width, h: collider.height }
+	}
+
+	#textureFor(assetId: string): Texture | undefined {
+		const known = this.#textures.get(assetId)
+		if (known !== undefined) return known ?? undefined
+		this.#textures.set(assetId, null)
+		void (async () => {
+			const record = this.#options.assets.get(assetId as Guid)
+			if (record === undefined || record.kind !== 'image') return
+			const bytes = await this.#options.assets.read(record.id)
+			if (!bytes.ok || this.#disposed) return
+			const bitmap = await decodeImage(bytes.value)
+			if (this.#disposed) return
+			this.#textures.set(assetId, this.#renderer.createTexture(bitmap, 'nearest'))
+		})().catch((error: unknown) => this.#logger.error('Sprite image failed to load', error))
+		return undefined
+	}
+
+	#draw(): void {
+		const canvas = this.#options.canvas
+		fitCanvasToDisplay(canvas)
+		const view = this.world.query(Camera)[0]
+		const viewMatrix = view === undefined ? undefined : this.#transforms.worldMatrix(view)
+		this.#camera.x = viewMatrix?.elements[12] ?? 0
+		this.#camera.y = viewMatrix?.elements[13] ?? 0
+		this.#camera.zoom = view === undefined ? 1 : Math.max(0.01, this.world.require(view, Camera).zoom)
+		const viewProjection = this.#camera.update(canvas.width, canvas.height)
+		this.#shapes.clear()
+		for (const layer of this.#layers.values()) layer.batch.clear()
+		for (const entity of this.world.query(Sprite)) this.#drawEntity(entity)
+		for (const entity of this.world.query(Collider)) {
+			if (!this.world.has(entity, Sprite)) this.#drawEntity(entity)
+		}
+		const spriteDraws = [...this.#layers.values()].filter((layer) => layer.batch.count > 0).map((layer) => ({ texture: layer.texture, batch: layer.batch }))
+		this.#renderer.render({
+			clearColor: [0.06, 0.07, 0.08, 1],
+			viewProjection,
+			draws: [{ texture: this.#white, batch: this.#shapes }, ...spriteDraws]
+		})
+	}
+
+	#drawEntity(entity: Entity): void {
+		const matrix = this.#transforms.worldMatrix(entity)
+		if (matrix === undefined) return
+		const m = matrix.elements
+		const extent = this.#extent(entity)
+		const x = m[12] ?? 0
+		const y = m[13] ?? 0
+		const width = Math.hypot(m[0] ?? 0, m[1] ?? 0) * extent.w
+		const height = Math.hypot(m[4] ?? 0, m[5] ?? 0) * extent.h
+		const rotation = Math.atan2(m[1] ?? 0, m[0] ?? 0)
+		const assetId = this.world.get(entity, Sprite)?.asset ?? ''
+		const texture = assetId === '' ? undefined : this.#textureFor(assetId)
+		if (assetId !== '' && texture !== undefined) {
+			let layer = this.#layers.get(assetId)
+			if (layer === undefined) {
+				layer = { texture, batch: new SpriteBatch(64) }
+				this.#layers.set(assetId, layer)
+			}
+			layer.batch.add(x, y, width, height, rotation, 0xffffffff)
+		} else {
+			this.#shapes.add(x, y, width, height, rotation, this.world.has(entity, Controller) ? packColor(1, 0.85, 0.3) : (COLORS[entity % COLORS.length] ?? 0xffffffff))
+		}
+	}
+}

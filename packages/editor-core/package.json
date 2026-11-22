@@ -8,7 +8,8 @@
     "@strata/core": "workspace:*",
     "@strata/math": "workspace:*",
     "@strata/project": "workspace:*",
-    "@strata/scene": "workspace:*"
+    "@strata/scene": "workspace:*",
+    "@strata/gameplay": "workspace:*"
   },
   "strata": { "platform": "universal" }
 }

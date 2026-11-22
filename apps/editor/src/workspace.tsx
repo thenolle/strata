@@ -12,6 +12,7 @@ import { CommandPalette } from './palette.tsx'
 import { createStudio } from './studio.ts'
 import { startViewport } from './viewport.ts'
 import { AssetsPanel } from './assets-panel.tsx'
+import { PlayOverlay } from './play.tsx'
 
 function isTextInput(target: EventTarget | null): boolean {
 	return target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
@@ -31,6 +32,7 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 	const status = signal('Starting graphics')
 	const paletteOpen = signal(false)
 	const menu = signal<MenuRequest | undefined>(undefined)
+	const playing = signal(false)
 	let rootElement: HTMLElement | undefined
 
 	const save = async (): Promise<void> => {
@@ -66,7 +68,13 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 		save,
 		close: props.onClose,
 		openPalette: () => setPalette(true),
-		openContextMenu: showContextMenu
+		openContextMenu: showContextMenu,
+		play: () => {
+			session.select(undefined)
+			setPalette(false)
+			menu.set(undefined)
+			playing.set(true)
+		}
 	})
 
 	const run = (id: string, args?: unknown): void => {
@@ -85,6 +93,7 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 					selected.set(session.selection)
 				})
 				const onKeyDown = (event: KeyboardEvent): void => {
+					if (playing()) return
 					const outcome = studio.keybindings.handle(event)
 					if (outcome.kind === 'none') return
 					event.preventDefault()
@@ -133,6 +142,9 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 					}}
 				</span>
 				<span class="spacer"></span>
+				<Button size="sm" onClick={() => run('play.start')}>
+					Play
+				</Button>
 				<Button size="sm" variant="ghost" onClick={() => setPalette(true)}>
 					Commands
 				</Button>
@@ -216,6 +228,7 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 					<ContextMenu request={request} studio={studio} onRun={(command, args) => run(command, args)} onClose={() => menu.set(undefined)} />
 				)
 			}}
+			{() => (playing() ? <PlayOverlay session={session} onClose={() => playing.set(false)} /> : null)}
 		</div>
 	)
 }

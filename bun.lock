@@ -30,8 +30,11 @@
         "@strata/input": "workspace:*",
         "@strata/math": "workspace:*",
         "@strata/menus": "workspace:*",
+        "@strata/physics": "workspace:*",
         "@strata/project": "workspace:*",
         "@strata/renderer": "workspace:*",
+        "@strata/runtime": "workspace:*",
+        "@strata/scene": "workspace:*",
         "@strata/storage-opfs": "workspace:*",
       },
     },
@@ -63,8 +66,18 @@
       "version": "0.0.0",
       "dependencies": {
         "@strata/core": "workspace:*",
+        "@strata/gameplay": "workspace:*",
         "@strata/math": "workspace:*",
         "@strata/project": "workspace:*",
+        "@strata/scene": "workspace:*",
+      },
+    },
+    "packages/gameplay": {
+      "name": "@strata/gameplay",
+      "version": "0.0.0",
+      "dependencies": {
+        "@strata/core": "workspace:*",
+        "@strata/physics": "workspace:*",
         "@strata/scene": "workspace:*",
       },
     },
@@ -91,6 +104,14 @@
         "@strata/core": "workspace:*",
       },
     },
+    "packages/physics": {
+      "name": "@strata/physics",
+      "version": "0.0.0",
+      "dependencies": {
+        "@strata/core": "workspace:*",
+        "@strata/scene": "workspace:*",
+      },
+    },
     "packages/project": {
       "name": "@strata/project",
       "version": "0.0.0",
@@ -104,6 +125,19 @@
       "dependencies": {
         "@strata/core": "workspace:*",
         "@strata/math": "workspace:*",
+      },
+    },
+    "packages/runtime": {
+      "name": "@strata/runtime",
+      "version": "0.0.0",
+      "dependencies": {
+        "@strata/core": "workspace:*",
+        "@strata/gameplay": "workspace:*",
+        "@strata/input": "workspace:*",
+        "@strata/physics": "workspace:*",
+        "@strata/project": "workspace:*",
+        "@strata/renderer": "workspace:*",
+        "@strata/scene": "workspace:*",
       },
     },
     "packages/scene": {
@@ -148,17 +182,23 @@
 
     "@strata/editor-core": ["@strata/editor-core@workspace:packages/editor-core"],
 
+    "@strata/gameplay": ["@strata/gameplay@workspace:packages/gameplay"],
+
     "@strata/input": ["@strata/input@workspace:packages/input"],
 
     "@strata/math": ["@strata/math@workspace:packages/math"],
 
     "@strata/menus": ["@strata/menus@workspace:packages/menus"],
 
+    "@strata/physics": ["@strata/physics@workspace:packages/physics"],
+
     "@strata/playground": ["@strata/playground@workspace:apps/playground"],
 
     "@strata/project": ["@strata/project@workspace:packages/project"],
 
     "@strata/renderer": ["@strata/renderer@workspace:packages/renderer"],
+
+    "@strata/runtime": ["@strata/runtime@workspace:packages/runtime"],
 
     "@strata/scene": ["@strata/scene@workspace:packages/scene"],
 

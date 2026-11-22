@@ -26,3 +26,5 @@
 - Editor: sprite component, assets panel with import and drag into the viewport, textured drawing and an image picker in the inspector.
 - Scene: register the sprite component so sprites are saved, loaded and restored by undo.
 - Editor: duplicate an entity with its descendants (Ctrl+D), undoable.
+- Physics package: 2D rigid bodies with box and circle colliders, friction and restitution.
+- Gameplay package: player controller. Runtime package: plays a scene at a fixed timestep. Editor: Play mode (F5), generic component inspector, Add Player, Platform and Camera.

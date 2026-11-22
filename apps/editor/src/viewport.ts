@@ -4,6 +4,7 @@ import type { EditorSession } from '@strata/editor-core'
 import { ActionMap, InputManager } from '@strata/input'
 import { Vec2, Vec3 } from '@strata/math'
 import { Camera2D, SpriteBatch, createRenderer, decodeImage, fitCanvasToDisplay, packColor, type Renderer, type Texture } from '@strata/renderer'
+import { Collider } from '@strata/physics'
 import { attachLongPress } from './long-press.ts'
 
 export const ASSET_MIME = 'application/x-strata-asset'
@@ -113,7 +114,10 @@ export function startViewport(options: ViewportOptions): () => void {
 		const extentOf = (entity: Entity): { readonly w: number; readonly h: number } => {
 			const asset = session.spriteOf(entity)
 			const record = asset === '' ? undefined : session.project.assets.get(asset as Guid)
-			return record?.kind === 'image' ? { w: record.image.width, h: record.image.height } : { w: UNIT, h: UNIT }
+			if (record?.kind === 'image') return { w: record.image.width, h: record.image.height }
+			const collider = session.world.get(entity, Collider)
+			if (collider === undefined) return { w: UNIT, h: UNIT }
+			return collider.shape === 'circle' ? { w: collider.radius * 2, h: collider.radius * 2 } : { w: collider.width, h: collider.height }
 		}
 
 		const textureFor = (assetId: string): Texture | undefined => {
