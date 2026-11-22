@@ -31,6 +31,7 @@ function Tile(props: {
 			title={asset.name}
 			data-menu="assets/context"
 			data-asset={asset.id}
+			data-kind={asset.kind}
 			ref={(element: Element) => {
 				const tile = element as HTMLElement
 				let url: string | undefined

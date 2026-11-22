@@ -1,0 +1,15 @@
+import type { Script, ScriptContext } from 'strata'
+
+export default class NewScript implements Script {
+	onStart(ctx: ScriptContext): void {
+		ctx.log('Hello from', ctx.name)
+	}
+
+	onUpdate(ctx: ScriptContext): void {
+		const transform = ctx.get('transform')
+		if (transform === undefined) return
+		const speed = 100
+		const direction = ctx.input.axis('ArrowLeft', 'ArrowRight')
+		ctx.setPosition(Number(transform['x']) + direction * speed * ctx.dt, Number(transform['y']))
+	}
+}

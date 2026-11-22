@@ -2,6 +2,7 @@ import { CommandRegistry, ContextKeys, KeybindingService } from '@strata/command
 import { DisposableStore, type Disposable, type Entity, type Guid } from '@strata/core'
 import type { EditorSession } from '@strata/editor-core'
 import { MenuRegistry } from '@strata/menus'
+import SCRIPT_TEMPLATE from './ide/script-template.txt'
 
 export interface StudioHooks {
 	readonly save: () => Promise<void>
@@ -33,23 +34,6 @@ function worldPoint(args: unknown): { readonly x: number; readonly y: number } |
 	if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)) return undefined
 	return { x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100 }
 }
-
-const SCRIPT_TEMPLATE = `import type { Script, ScriptContext } from 'strata'
-
-export default class NewScript implements Script {
-	onStart(ctx: ScriptContext): void {
-		ctx.log('Hello from', ctx.name)
-	}
-
-	onUpdate(ctx: ScriptContext): void {
-		const transform = ctx.get('transform')
-		if (transform === undefined) return
-		const speed = 100
-		const direction = ctx.input.axis('ArrowLeft', 'ArrowRight')
-		ctx.setPosition(Number(transform['x']) + direction * speed * ctx.dt, Number(transform['y']))
-	}
-}
-`
 
 /**
  * Registers Studio's commands, default shortcuts, menus and the context keys that gate them.
@@ -237,9 +221,9 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 	contribute('viewport/context', { command: 'entity.addCamera', group: '1_create@5' })
 	contribute('viewport/context', { command: 'play.start', group: '5_play' })
 
-	contribute('assets/context', { command: 'asset.addToScene', group: '1_create' })
-	contribute('assets/context', { command: 'asset.assignToSelection', group: '2_modify' })
-	contribute('assets/context', { command: 'script.edit', group: '3_script' })
+	contribute('assets/context', { command: 'asset.addToScene', group: '1_create', when: "assetKind == 'image'" })
+	contribute('assets/context', { command: 'asset.assignToSelection', group: '2_modify', when: "assetKind == 'image'" })
+	contribute('assets/context', { command: 'script.edit', group: '3_script', when: "assetKind == 'script'" })
 
 	for (const menu of ['outline/context', 'viewport/context']) {
 		contribute(menu, { command: 'edit.copy', group: '2_edit@1' })

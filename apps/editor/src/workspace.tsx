@@ -56,6 +56,7 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 		const entity = element.dataset['entity']
 		if (entity !== undefined) session.select(Number(entity) as Entity)
 		const asset = element.dataset['asset']
+		studio.contexts.set('assetKind', element.dataset['kind'] ?? '')
 		openMenu({ menuId: element.dataset['menu'] ?? '', x, y, keyboard, ...(asset === undefined ? {} : { args: { asset } }) })
 	}
 
