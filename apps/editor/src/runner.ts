@@ -1,34 +1,43 @@
-import { simulateScript } from '@strata/scripting'
+import { runJob, type Job } from './run-job.ts'
 
-interface RunMessage {
+interface RunMessage extends Job {
 	readonly type: 'run'
-	readonly code: string
-	readonly steps: number
-	readonly held: readonly string[]
+	/** The worker's source text. The sandbox cannot fetch it, so the editor sends it. */
+	readonly worker?: string
 }
 
-function post(message: unknown): void {
-	window.parent.postMessage(message, '*')
+const post = (message: unknown): void => window.parent.postMessage(message, '*')
+
+const fail = (error: unknown): void => post({ type: 'failure', message: error instanceof Error ? error.message : String(error) })
+
+function inline(job: Job): void {
+	void runJob(job).then((result) => post({ type: 'result', result }), fail)
 }
 
-async function run(message: RunMessage): Promise<void> {
-	const lines: string[] = []
-	const original = console.log
-	console.log = (...values: unknown[]): void => {
-		lines.push(values.map(String).join(' '))
-	}
+function inWorker(message: RunMessage): void {
+	if (message.worker === undefined || typeof Worker === 'undefined') return inline(message)
+	let worker: Worker
 	try {
-		const loaded = (await import(URL.createObjectURL(new Blob([message.code], { type: 'text/javascript' })))) as { readonly default?: unknown }
-		const started = performance.now()
-		const result = simulateScript(loaded.default, { steps: message.steps, held: message.held, sink: lines })
-		post({ type: 'result', result: { logs: lines, errors: result.errors, transform: result.transform, steps: result.steps, ms: performance.now() - started } })
-	} finally {
-		console.log = original
+		worker = new Worker(URL.createObjectURL(new Blob([message.worker], { type: 'text/javascript' })))
+	} catch {
+		return inline(message)
 	}
+	let answered = false
+	worker.onmessage = (event: MessageEvent): void => {
+		answered = true
+		post(event.data)
+	}
+	worker.onerror = (): void => {
+		if (answered) return
+		answered = true
+		worker.terminate()
+		inline(message)
+	}
+	worker.postMessage({ code: message.code, steps: message.steps, held: message.held })
 }
 
 addEventListener('message', (event: MessageEvent<RunMessage>) => {
 	if (event.source !== window.parent || typeof event.data !== 'object' || event.data === null || event.data.type !== 'run') return
-	void run(event.data).catch((error: unknown) => post({ type: 'failure', message: error instanceof Error ? error.message : String(error) }))
+	inWorker(event.data)
 })
 post({ type: 'ready' })

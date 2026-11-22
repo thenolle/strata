@@ -10,13 +10,21 @@ export type RunOutcome = { readonly ok: true; readonly result: RunResult } | { r
 
 const TIMEOUT_MS = 4000
 
+let workerSource: Promise<string | undefined> | undefined
+
+function loadWorker(): Promise<string | undefined> {
+	workerSource ??= fetch('/assets/runner-worker.js')
+		.then((response) => (response.ok ? response.text() : undefined))
+		.catch(() => undefined)
+	return workerSource
+}
+
 /**
- * Compiles a script and runs it for a number of steps in a sandboxed frame. The frame is removed when it finishes or times out.
+ * Runs compiled script code for a number of steps in a sandboxed frame, inside a worker when the browser allows it.
+ * The frame is removed when the run finishes or times out, which also stops an endless loop.
  */
-export async function runScript(source: string, steps: number, held: readonly string[]): Promise<RunOutcome> {
-	const response = await fetch('/api/compile', { method: 'POST', body: source })
-	const compiled = (await response.json()) as { readonly ok: true; readonly code: string } | { readonly ok: false; readonly error: string }
-	if (!compiled.ok) return { ok: false, error: compiled.error }
+export async function runCompiled(code: string, steps: number, held: readonly string[]): Promise<RunOutcome> {
+	const worker = await loadWorker()
 	return new Promise<RunOutcome>((resolve) => {
 		const frame = document.createElement('iframe')
 		frame.setAttribute('sandbox', 'allow-scripts')
@@ -35,7 +43,7 @@ export async function runScript(source: string, steps: number, held: readonly st
 		const onMessage = (event: MessageEvent): void => {
 			if (event.source !== frame.contentWindow) return
 			const data = event.data as { readonly type?: string; readonly result?: RunResult; readonly message?: string }
-			if (data.type === 'ready') frame.contentWindow?.postMessage({ type: 'run', code: compiled.code, steps, held }, '*')
+			if (data.type === 'ready') frame.contentWindow?.postMessage({ type: 'run', code, steps, held, ...(worker === undefined ? {} : { worker }) }, '*')
 			else if (data.type === 'result' && data.result !== undefined) finish({ ok: true, result: data.result })
 			else if (data.type === 'failure') finish({ ok: false, error: data.message ?? 'The script failed to load' })
 		}

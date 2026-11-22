@@ -5,7 +5,7 @@ import { serve, staticFiles } from '@gambrel/bun'
 import { createApp, html, text } from '@gambrel/core'
 import { renderToString } from '@gambrel/view'
 import { Shell } from '../apps/editor/src/shell.tsx'
-import { checkScript, compileScript } from './scripts.ts'
+import { bundleScripts, checkScript, compileScript } from './scripts.ts'
 import { Ide } from './ide.ts'
 
 const root = resolve(import.meta.dir, '..')
@@ -60,7 +60,7 @@ async function build(): Promise<boolean> {
 		for (const log of result.logs) console.error(log)
 		return false
 	}
-	for (const name of ['player', 'runner']) {
+	for (const name of ['player', 'runner', 'runner-worker']) {
 		const built = await Bun.build({
 			entrypoints: [join(editor, `src/${name}.ts`)],
 			target: 'browser',
@@ -98,6 +98,17 @@ const app = createApp({ development: true })
 	.post('/api/compile', async (ctx) => {
 		if (ctx.request.headers.get('origin') !== ctx.url.origin) return reply({ ok: false, error: 'Cross-origin requests are refused' }, 403)
 		const result = compileScript(await ctx.request.text())
+		return reply(result, result.ok ? 200 : 400)
+	})
+	.post('/api/bundle', async (ctx) => {
+		if (ctx.request.headers.get('origin') !== ctx.url.origin) return reply({ ok: false, error: 'Cross-origin requests are refused' }, 403)
+		let body: unknown
+		try {
+			body = JSON.parse(await ctx.request.text())
+		} catch {
+			return reply({ ok: false, error: 'Invalid JSON' }, 400)
+		}
+		const result = await bundleScripts(body)
 		return reply(result, result.ok ? 200 : 400)
 	})
 	.post('/api/check', async (ctx) => {

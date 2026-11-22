@@ -10,7 +10,8 @@ import guide from './ide/docs.txt'
 import { ideClient, type Diagnostic } from './ide/ide-client.ts'
 import { renderMarkdown } from './ide/markdown.ts'
 import type { Layout } from './layout.ts'
-import { runScript } from './ide/runner-client.ts'
+import { runCompiled } from './ide/runner-client.ts'
+import { bundleScript, collectScripts, scriptPath } from './ide/bundle-client.ts'
 
 interface Doc {
 	readonly id: Guid
@@ -44,13 +45,27 @@ export function Workbench(props: {
 		panel.set('output')
 	}
 
+	const syncProject = async (): Promise<void> => {
+		const files = await collectScripts(props.session.project.assets)
+		await ideClient.project(Object.entries(files).map(([path, text]) => ({ path, text }))).catch(() => undefined)
+		for (const doc of open.values()) doc.editor.invalidate()
+	}
+
 	const run = async (): Promise<void> => {
 		const doc = current()
 		if (doc === undefined || running) return
 		running = true
 		const held = keys.peek().split(/[\s,]+/).filter((key) => key !== '')
 		print(`▶ ${doc.name} · ${steps.peek()} steps${held.length > 0 ? ` · holding ${held.join(', ')}` : ''}`)
-		const outcome = await runScript(doc.editor.value, steps.peek(), held).catch((error: unknown) => ({ ok: false as const, error: String(error) }))
+		const record = props.session.project.assets.get(doc.id)
+		const files = await collectScripts(props.session.project.assets, new Map([...open.values()].map((item) => [item.id, item.editor.value])))
+		const bundled = record === undefined ? ({ ok: false, error: 'This script no longer exists' } as const) : await bundleScript(files, scriptPath(record))
+		if (!bundled.ok) {
+			running = false
+			print(`✕ ${bundled.error}`)
+			return
+		}
+		const outcome = await runCompiled(bundled.code, steps.peek(), held).catch((error: unknown) => ({ ok: false as const, error: String(error) }))
 		running = false
 		if (!outcome.ok) {
 			print(`✕ ${outcome.error}`)
@@ -98,6 +113,7 @@ export function Workbench(props: {
 		doc.dirty = false
 		message.set(`Saved ${doc.name}`)
 		props.session.notifyAssetsChanged()
+		void syncProject()
 		bump()
 	}
 
@@ -107,6 +123,7 @@ export function Workbench(props: {
 		if (doc.dirty && !confirm(`Discard unsaved changes to ${doc.name}?`)) return
 		doc.editor.dispose()
 		open.delete(id)
+		void syncProject()
 		const remaining = tabs.peek().filter((tab) => tab !== id)
 		tabs.set(remaining)
 		if (active.peek() === id) activate(remaining[remaining.length - 1])
@@ -150,6 +167,10 @@ export function Workbench(props: {
 			},
 			onRun: () => void run(),
 			onStatus: (text) => message.set(text),
+			path: () => {
+				const record = props.session.project.assets.get(id)
+				return record === undefined ? `${id}.ts` : scriptPath(record)
+			},
 		})
 		const doc: Doc = { id, name: record.name, editor, dirty: false, diagnostics: [], line: 1, column: 1 }
 		open.set(id, doc)
@@ -175,7 +196,16 @@ export function Workbench(props: {
 						const request = props.request()
 						if (request !== undefined) void openScript(request.asset)
 					})
+					let syncTimer: ReturnType<typeof setTimeout> | undefined
+					const changes = props.session.changed.subscribe((kind) => {
+						if (kind === 'transform') return
+						clearTimeout(syncTimer)
+						syncTimer = setTimeout(() => void syncProject(), 400)
+					})
+					void syncProject()
 					onCleanup(() => {
+						clearTimeout(syncTimer)
+						changes.dispose()
 						closed = true
 						for (const doc of open.values()) doc.editor.dispose()
 						open.clear()
