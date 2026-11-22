@@ -21,6 +21,7 @@ export interface CodeEditorOptions {
 	readonly onSave: () => void
 	readonly onClose: () => void
 	readonly onDiagnostics: (diagnostics: readonly Diagnostic[]) => void
+	readonly onCursor: (line: number, column: number) => void
 }
 
 function visualColumn(line: string, column: number): number {
@@ -68,6 +69,7 @@ export class CodeEditor {
 	#lineCount = 0
 	#suppress = false
 	#disposed = false
+	#refreshing = false
 	#changeTimer: ReturnType<typeof setTimeout> | undefined
 	#completeTimer: ReturnType<typeof setTimeout> | undefined
 	#hoverTimer: ReturnType<typeof setTimeout> | undefined
@@ -97,6 +99,9 @@ export class CodeEditor {
 		this.element.append(this.#gutter, this.#body)
 		this.#input.addEventListener('input', this.#onInput)
 		this.#input.addEventListener('keydown', this.#onKeyDown)
+		this.#input.addEventListener('keyup', this.#reportCursor)
+		this.#input.addEventListener('mouseup', this.#reportCursor)
+		this.#input.addEventListener('focus', this.#reportCursor)
 		this.#input.addEventListener('scroll', this.#onScroll)
 		this.#input.addEventListener('blur', this.#onBlur)
 		this.#body.addEventListener('mousemove', this.#onMouseMove)
@@ -203,14 +208,19 @@ export class CodeEditor {
 	}
 
 	async #refreshDiagnostics(): Promise<void> {
-		if (this.#disposed) return
-		const list = await this.#options.client.diagnostics(this.#options.name).catch(() => this.#diagnostics)
-		const key = JSON.stringify(list)
-		if (key === this.#diagnosticsKey || this.#disposed) return
-		this.#diagnosticsKey = key
-		this.#diagnostics = list
-		this.#render()
-		this.#options.onDiagnostics(list)
+		if (this.#disposed || this.#refreshing) return
+		this.#refreshing = true
+		try {
+			const list = await this.#options.client.diagnostics(this.#options.name).catch(() => this.#diagnostics)
+			const key = JSON.stringify(list)
+			if (key === this.#diagnosticsKey || this.#disposed) return
+			this.#diagnosticsKey = key
+			this.#diagnostics = list
+			this.#render()
+			this.#options.onDiagnostics(list)
+		} finally {
+			this.#refreshing = false
+		}
 	}
 
 	async #complete(manual: boolean): Promise<void> {
@@ -320,15 +330,22 @@ export class CodeEditor {
 		this.#tooltip.hidden = true
 	}
 
+	readonly #reportCursor = (): void => {
+		const at = this.#position()
+		this.#options.onCursor(at.line + 1, at.character + 1)
+	}
+
 	readonly #onInput = (): void => {
 		this.#render()
 		this.#hideTooltip()
 		this.#options.onChange(this.#input.value)
 		clearTimeout(this.#changeTimer)
 		this.#changeTimer = setTimeout(() => void this.#send(), CHANGE_DELAY_MS)
-		if (this.#suppress) return
-		clearTimeout(this.#completeTimer)
-		this.#completeTimer = setTimeout(() => void this.#complete(false), COMPLETE_DELAY_MS)
+		if (!this.#suppress) {
+			clearTimeout(this.#completeTimer)
+			this.#completeTimer = setTimeout(() => void this.#complete(false), COMPLETE_DELAY_MS)
+		}
+		this.#reportCursor()
 	}
 
 	readonly #onScroll = (): void => {

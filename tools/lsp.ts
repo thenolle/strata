@@ -66,7 +66,8 @@ export class LspClient {
 				textDocument: {
 					completion: { completionItem: { snippetSupport: false, documentationFormat: ['markdown', 'plaintext'] } },
 					hover: { contentFormat: ['markdown', 'plaintext'] },
-					publishDiagnostics: {}
+					diagnostic: { dynamicRegistration: false },
+					publishDiagnostics: {},
 				},
 				workspace: { configuration: false }
 			}

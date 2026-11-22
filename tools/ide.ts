@@ -107,9 +107,19 @@ export class Ide {
 		return hoverText((result as { readonly contents?: unknown } | null)?.contents)
 	}
 
-	diagnostics(name: string): DiagnosticOut[] {
-		const list: readonly RawDiagnostic[] = this.#current?.diagnostics.get(`${name}.ts`) ?? []
-		return list.map((item) => ({
+	async diagnostics(name: string): Promise<DiagnosticOut[]> {
+		const client = this.#current
+		if (client === undefined || !this.#versions.has(name)) return []
+		let raw: readonly RawDiagnostic[] | undefined
+		try {
+			const result = await client.request('textDocument/diagnostic', { textDocument: { uri: this.#uri(`${name}.ts`) } })
+			const items = (result as { readonly items?: readonly RawDiagnostic[] } | null)?.items
+			if (items !== undefined) raw = items
+		} catch {
+			// The server only publishes diagnostics: use those.
+		}
+		raw ??= client.diagnostics.get(`${name}.ts`) ?? []
+		return raw.map((item) => ({
 			line: item.range.start.line,
 			character: item.range.start.character,
 			endLine: item.range.end.line,
@@ -155,7 +165,7 @@ export class Ide {
 				case 'hover':
 					return hasPosition ? { ok: true, text: await this.hover(name, line, character) } : { ok: false, error: 'Invalid position' }
 				case 'diagnostics':
-					return { ok: true, diagnostics: this.diagnostics(name) }
+					return { ok: true, diagnostics: await this.diagnostics(name) }
 				case 'close':
 					await this.close(name)
 					return { ok: true }

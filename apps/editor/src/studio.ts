@@ -11,6 +11,7 @@ export interface StudioHooks {
 	readonly openContextMenu: () => void
 	readonly play: () => void
 	readonly openScript: (asset: Guid) => void
+	readonly revealFolder: (path: string) => void
 }
 
 export interface Studio extends Disposable {
@@ -18,6 +19,12 @@ export interface Studio extends Disposable {
 	readonly commands: CommandRegistry
 	readonly keybindings: KeybindingService
 	readonly menus: MenuRegistry
+}
+
+function folderArg(args: unknown): string | undefined {
+	if (typeof args !== 'object' || args === null) return undefined
+	const folder = (args as { readonly folder?: unknown }).folder
+	return typeof folder === 'string' ? folder : undefined
 }
 
 function assetArg(args: unknown): string | undefined {
@@ -82,6 +89,16 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 		return record?.kind === 'image' ? { width: record.image.width, height: record.image.height } : { width: 32, height: 32 }
 	}
 
+	const assetOf = (args: unknown) => {
+		const id = assetArg(args)
+		const record = id === undefined ? undefined : session.project.assets.get(id as Guid)
+		if (record === undefined) throw new Error('Choose a file in the Explorer first')
+		return record
+	}
+	const fail = (message: string): never => {
+		throw new Error(message)
+	}
+
 	// Commands
 
 	const command = (id: string, title: string, category: string, run: (args?: unknown) => void | Promise<void>, when?: string): void => { store.add(commands.register({ id, title, category, ...(when === undefined ? {} : { when }), run })) }
@@ -104,6 +121,32 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 		const selected = session.selection
 		if (selected !== undefined) session.setSprite(selected, asset.id)
 	}, 'hasSelection')
+	command('asset.delete', 'Delete Asset', 'Asset', async (args) => {
+		const asset = assetOf(args)
+		const uses = session.assetUsage(asset.id)
+		const warning = uses > 0 ? `\n\nIt is used by ${uses} component${uses === 1 ? '' : 's'} in the scene, which will lose it.` : ''
+		if (!confirm(`Delete "${asset.name}"?${warning}`)) return
+		const result = await session.project.assets.remove(asset.id)
+		if (!result.ok) return fail(result.error.message)
+		session.notifyAssetsChanged()
+	})
+	command('asset.rename', 'Rename Asset', 'Asset', async (args) => {
+		const asset = assetOf(args)
+		const name = prompt('New name', asset.name)
+		if (name === null || name.trim() === asset.name) return
+		const result = await session.project.assets.rename(asset.id, name)
+		if (!result.ok) return fail(result.error.message)
+		session.notifyAssetsChanged()
+	})
+	command('asset.move', 'Move Asset to Folder', 'Asset', async (args) => {
+		const asset = assetOf(args)
+		const folder = folderArg(args) ?? ''
+		if (folder === asset.folder) return
+		const result = await session.project.assets.move(asset.id, folder)
+		if (!result.ok) return fail(result.error.message)
+		hooks.revealFolder(folder)
+		session.notifyAssetsChanged()
+	})
 
 	command('play.start', 'Play Scene', 'Game', hooks.play)
 
@@ -149,11 +192,13 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 	command('edit.undo', 'Undo', 'Edit', () => void session.undo(), 'canUndo')
 	command('edit.redo', 'Redo', 'Edit', () => void session.redo(), 'canRedo')
 
-	command('script.new', 'New Script', 'Script', async () => {
+	command('script.new', 'New Script', 'Script', async (args) => {
+		const folder = folderArg(args) ?? ''
 		let name = 'NewScript.ts'
-		for (let index = 2; session.project.assets.find(name) !== undefined; index++) name = `NewScript${index}.ts`
-		const result = await session.project.assets.importAsset(name, new TextEncoder().encode(SCRIPT_TEMPLATE))
-		if (!result.ok) throw new Error(result.error.message)
+		for (let index = 2; session.project.assets.find(name, folder) !== undefined; index++) name = `NewScript${index}.ts`
+		const result = await session.project.assets.importAsset(name, new TextEncoder().encode(SCRIPT_TEMPLATE), folder)
+		if (!result.ok) return fail(result.error.message)
+		hooks.revealFolder(folder)
 		session.notifyAssetsChanged()
 		hooks.openScript(result.value.id)
 	})
@@ -162,6 +207,37 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 		const record = id === undefined ? undefined : session.project.assets.get(id as Guid)
 		if (record?.kind !== 'script') throw new Error('Choose a script in the Assets panel first')
 		hooks.openScript(record.id)
+	})
+
+	command('folder.new', 'New Folder', 'Asset', async (args) => {
+		const parent = folderArg(args) ?? ''
+		const name = prompt(parent === '' ? 'Folder name' : `New folder in ${parent}`)
+		if (name === null || name.trim() === '') return
+		const path = parent === '' ? name.trim() : `${parent}/${name.trim()}`
+		const result = await session.project.assets.createFolder(path)
+		if (!result.ok) return fail(result.error.message)
+		hooks.revealFolder(path)
+		session.notifyAssetsChanged()
+	})
+	command('folder.rename', 'Rename Folder', 'Asset', async (args) => {
+		const folder = folderArg(args)
+		if (folder === undefined || folder === '') return fail('Choose a folder in the Explorer first')
+		const name = prompt('New folder name', folder.slice(folder.lastIndexOf('/') + 1))
+		if (name === null || name.trim() === '') return
+		const result = await session.project.assets.renameFolder(folder, name)
+		if (!result.ok) return fail(result.error.message)
+		session.notifyAssetsChanged()
+	})
+	command('folder.delete', 'Delete Folder', 'Asset', async (args) => {
+		const folder = folderArg(args)
+		if (folder === undefined || folder === '') return fail('Choose a folder in the Explorer first')
+		const inside = session.project.assets.list().filter((asset) => asset.folder === folder || asset.folder.startsWith(`${folder}/`))
+		const used = inside.reduce((total, asset) => total + session.assetUsage(asset.id), 0)
+		const warning = used > 0 ? `\n\n${used} component${used === 1 ? '' : 's'} in the scene use these files and will lose them.` : ''
+		if (!confirm(`Delete the folder "${folder}" and the ${inside.length} file${inside.length === 1 ? '' : 's'} in it?${warning}`)) return
+		const result = await session.project.assets.deleteFolder(folder)
+		if (!result.ok) return fail(result.error.message)
+		session.notifyAssetsChanged()
 	})
 
 	const added = keybindings.addAll([
@@ -189,6 +265,8 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 
 	// Contibutions
 
+	const isFile = "assetKind != 'folder' && assetKind != ''"
+	const isFolder = "assetKind == 'folder' || assetKind == ''"
 	const contribute = (menu: string, item: Parameters<MenuRegistry['add']>[1]): void => { store.add(menus.add(menu, item)) }
 
 	contribute('entity/create', { command: 'entity.add', title: 'Entity', group: '1_create@1' })
@@ -224,6 +302,16 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 	contribute('assets/context', { command: 'asset.addToScene', group: '1_create', when: "assetKind == 'image'" })
 	contribute('assets/context', { command: 'asset.assignToSelection', group: '2_modify', when: "assetKind == 'image'" })
 	contribute('assets/context', { command: 'script.edit', group: '3_script', when: "assetKind == 'script'" })
+
+	contribute('explorer/context', { command: 'script.new', title: 'New Script', group: '1_new@1', when: isFolder })
+	contribute('explorer/context', { command: 'folder.new', title: 'New Folder', group: '1_new@2', when: isFolder })
+	contribute('explorer/context', { command: 'script.edit', group: '2_open@1', when: "assetKind == 'script'" })
+	contribute('explorer/context', { command: 'asset.addToScene', group: '2_open@2', when: "assetKind == 'image'" })
+	contribute('explorer/context', { command: 'asset.assignToSelection', group: '2_open@3', when: "assetKind == 'image'" })
+	contribute('explorer/context', { command: 'asset.rename', group: '3_modify@1', when: isFile })
+	contribute('explorer/context', { command: 'folder.rename', group: '3_modify@2', when: "assetKind == 'folder'" })
+	contribute('explorer/context', { command: 'asset.delete', group: '3_modify@3', when: isFile })
+	contribute('explorer/context', { command: 'folder.delete', group: '3_modify@4', when: "assetKind == 'folder'" })
 
 	for (const menu of ['outline/context', 'viewport/context']) {
 		contribute(menu, { command: 'edit.copy', group: '2_edit@1' })

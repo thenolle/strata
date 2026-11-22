@@ -1,25 +1,25 @@
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import { Ide } from './ide.ts'
+import { Ide, type DiagnosticOut } from './ide.ts'
 
 const root = resolve(import.meta.dir, '..')
 const template = await readFile(resolve(root, 'apps/editor/src/ide/script-template.txt'), 'utf8')
 const ide = new Ide(root)
-const call = "ctx.log('Hello from', ctx.name)"
+const call = template.split('\n').find((line) => line.includes('ctx.log('))?.trim() ?? ''
 
-async function until<T>(read: () => T, done: (value: T) => boolean, timeoutMs = 15_000): Promise<T> {
+async function until(read: () => Promise<DiagnosticOut[]>, done: (items: DiagnosticOut[]) => boolean, timeoutMs = 15_000): Promise<DiagnosticOut[]> {
 	const started = Date.now()
 	for (;;) {
-		const value = read()
-		if (done(value) || Date.now() - started > timeoutMs) return value
-		await Bun.sleep(200)
+		const items = await read()
+		if (done(items) || Date.now() - started > timeoutMs) return items
+		await Bun.sleep(300)
 	}
 }
 
 try {
 	await ide.sync('check', template)
 	await Bun.sleep(2000)
-	console.log('clean', ide.diagnostics('check').length)
+	console.log('clean', (await ide.diagnostics('check')).length)
 	await ide.sync('check', template.replace(call, 'ctx.logg'))
 	const broken = await until(() => ide.diagnostics('check'), (items) => items.length > 0)
 	console.log('broken', broken.some((item) => item.message.includes('logg')))

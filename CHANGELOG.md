@@ -35,3 +35,4 @@
 - Scripting package: TypeScript script API and host. Project: script assets with editing. Editor server: compile and type-check endpoints.
 - Editor: script editor with New script, Save and type-check; Play runs the game in a sandboxed frame with TypeScript scripts compiled by the editor server.
 - Editor: script IDE with syntax highlighting, live diagnostics, completion, hover documentation and a docs panel, powered by the native TypeScript language server.
+- Project: asset folders with create, rename, move and delete. Editor: file tree explorer and a script IDE workbench with tabs, docs and a status bar.

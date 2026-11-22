@@ -11,9 +11,9 @@ import { logger } from './logger.ts'
 import { CommandPalette } from './palette.tsx'
 import { createStudio } from './studio.ts'
 import { startViewport } from './viewport.ts'
-import { AssetsPanel } from './assets-panel.tsx'
+import { Explorer } from './explorer.tsx'
 import { PlayOverlay } from './play.tsx'
-import { ScriptEditor } from './script-editor.tsx'
+import { Workbench } from './workbench.tsx'
 
 function isTextInput(target: EventTarget | null): boolean {
 	return target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
@@ -34,7 +34,9 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 	const paletteOpen = signal(false)
 	const menu = signal<MenuRequest | undefined>(undefined)
 	const playing = signal(false)
-	const editing = signal<Guid | undefined>(undefined)
+	const ide = signal(false)
+	const ideRequest = signal<{ readonly asset: Guid; readonly n: number } | undefined>(undefined)
+	const reveal = signal<string | undefined>(undefined)
 	let rootElement: HTMLElement | undefined
 
 	const save = async (): Promise<void> => {
@@ -56,8 +58,10 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 		const entity = element.dataset['entity']
 		if (entity !== undefined) session.select(Number(entity) as Entity)
 		const asset = element.dataset['asset']
+		const folder = element.dataset['folder']
 		studio.contexts.set('assetKind', element.dataset['kind'] ?? '')
-		openMenu({ menuId: element.dataset['menu'] ?? '', x, y, keyboard, ...(asset === undefined ? {} : { args: { asset } }) })
+		const args = asset === undefined && folder === undefined ? undefined : { ...(asset === undefined ? {} : { asset }), ...(folder === undefined ? {} : { folder }) }
+		openMenu({ menuId: element.dataset['menu'] ?? '', x, y, keyboard, ...(args === undefined ? {} : { args }) })
 	}
 
 	const showContextMenu = (): void => {
@@ -72,7 +76,11 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 		close: props.onClose,
 		openPalette: () => setPalette(true),
 		openContextMenu: showContextMenu,
-		openScript: (asset) => editing.set(asset),
+		openScript: (asset) => {
+			ide.set(true)
+			ideRequest.set({ asset, n: (ideRequest.peek()?.n ?? 0) + 1 })
+		},
+		revealFolder: (path) => reveal.set(path),
 		play: () => {
 			session.select(undefined)
 			setPalette(false)
@@ -97,7 +105,7 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 					selected.set(session.selection)
 				})
 				const onKeyDown = (event: KeyboardEvent): void => {
-					if (playing()) return
+					if (playing() || ide()) return
 					const outcome = studio.keybindings.handle(event)
 					if (outcome.kind === 'none') return
 					event.preventDefault()
@@ -212,7 +220,15 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 					onCleanup(stop)
 				}}
 			></div>
-			<AssetsPanel session={session} run={(id, args) => run(id, args)} onNotice={(text) => notice.set(text)} />
+			<Explorer
+				session={session}
+				run={(id, args) => run(id, args)}
+				onNotice={(text) => notice.set(text)}
+				reveal={reveal}
+				onOpen={(asset) => {
+					if (asset.kind === 'script') run('script.edit', { asset: asset.id })
+				}}
+			/>
 			<aside class="panel inspector" aria-label="Inspector">
 				<Inspector session={session} selected={selected} revision={fieldRevision} run={(id) => run(id)} />
 			</aside>
@@ -237,10 +253,7 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 				)
 			}}
 			{() => (playing() ? <PlayOverlay session={session} onClose={() => playing.set(false)} /> : null)}
-			{() => {
-				const asset = editing()
-				return asset === undefined ? null : <ScriptEditor session={session} assetId={asset} onClose={() => editing.set(undefined)} />
-			}}
+			{() => (ide() ? <Workbench session={session} request={ideRequest} run={(id, args) => run(id, args)} reveal={reveal} onClose={() => ide.set(false)} /> : null)}
 		</div>
 	)
 }
