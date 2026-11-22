@@ -499,3 +499,272 @@ body {
   font: 12px monospace;
   white-space: pre-wrap;
 }
+
+.script-editor {
+  width: min(1180px, 96vw);
+  height: min(780px, 92vh);
+}
+
+.script-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-height: 0;
+}
+
+.script-host {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+}
+
+.script-docs {
+  width: 320px;
+  padding: 8px 14px;
+  overflow: auto;
+  border-left: 1px solid #2c3037;
+  background: #1a1d22;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.script-docs h2,
+.script-docs h3 {
+  margin: 14px 0 6px;
+  font-size: 14px;
+}
+
+.script-problems {
+  max-height: 120px;
+  margin: 0;
+  padding: 4px 0;
+  overflow: auto;
+  list-style: none;
+  border-top: 1px solid #2c3037;
+  font: 12px monospace;
+}
+
+.script-problems li {
+  padding: 2px 12px;
+  cursor: pointer;
+  white-space: pre-wrap;
+}
+
+.script-problems .error {
+  color: #f2b8b5;
+}
+
+.script-problems .warning {
+  color: #f2d58b;
+}
+
+.script-problems .ok {
+  color: #8b93a0;
+  cursor: default;
+}
+
+.ide {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  background: #14161a;
+}
+
+.ide-gutter,
+.ide-highlight,
+.ide-input,
+.ide-probe {
+  margin: 0;
+  font: 13px/20px ui-monospace, Consolas, monospace;
+  tab-size: 2;
+}
+
+.ide-gutter {
+  padding: 12px 10px 12px 12px;
+  overflow: hidden;
+  border-right: 1px solid #22262c;
+  color: #5c6370;
+  text-align: right;
+  user-select: none;
+}
+
+.ide-body {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.ide-highlight {
+  position: absolute;
+  inset: 0;
+  padding: 12px;
+  overflow: hidden;
+  color: #e6e8eb;
+  white-space: pre;
+  pointer-events: none;
+}
+
+.ide-input {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  padding: 12px;
+  overflow: auto;
+  border: 0;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: transparent;
+  caret-color: #e6e8eb;
+  white-space: pre;
+}
+
+.ide-input::selection {
+  background: rgba(80, 130, 220, 0.45);
+}
+
+.ide-probe {
+  position: absolute;
+  visibility: hidden;
+  white-space: pre;
+}
+
+.tok-keyword {
+  color: #c586c0;
+}
+
+.tok-string {
+  color: #ce9178;
+}
+
+.tok-number {
+  color: #b5cea8;
+}
+
+.tok-comment {
+  color: #6a9955;
+  font-style: italic;
+}
+
+.tok-type {
+  color: #4ec9b0;
+}
+
+.tok-function {
+  color: #dcdcaa;
+}
+
+.tok-punctuation {
+  color: #9aa4b2;
+}
+
+.squiggle-error {
+  text-decoration: underline wavy #f14c4c;
+  text-underline-offset: 3px;
+}
+
+.squiggle-warning {
+  text-decoration: underline wavy #cca700;
+  text-underline-offset: 3px;
+}
+
+.ide-popup {
+  position: absolute;
+  z-index: 5;
+  min-width: 240px;
+  max-width: 460px;
+  max-height: 240px;
+  margin: 0;
+  padding: 2px;
+  overflow: auto;
+  list-style: none;
+  border: 1px solid #3a3f47;
+  border-radius: 6px;
+  background: #1f2329;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  font: 12px ui-monospace, Consolas, monospace;
+}
+
+.ide-popup li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.ide-popup li[data-active='true'] {
+  background: #2b4a7a;
+}
+
+.ide-badge {
+  width: 14px;
+  color: #8b93a0;
+  text-align: center;
+}
+
+.ide-detail {
+  margin-left: auto;
+  overflow: hidden;
+  color: #8b93a0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ide-tooltip {
+  position: absolute;
+  z-index: 6;
+  max-width: 520px;
+  max-height: 260px;
+  padding: 8px 10px;
+  overflow: auto;
+  border: 1px solid #3a3f47;
+  border-radius: 6px;
+  background: #1f2329;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  font: 12px/1.5 system-ui, sans-serif;
+}
+
+.ide-tooltip-error {
+  margin-bottom: 6px;
+  color: #f2b8b5;
+}
+
+.md-code {
+  position: relative;
+  margin: 6px 0;
+}
+
+.md-code pre {
+  margin: 0;
+  padding: 8px 10px;
+  overflow: auto;
+  border-radius: 6px;
+  background: #14161a;
+  font: 12px/1.5 ui-monospace, Consolas, monospace;
+}
+
+.md-code button {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  padding: 2px 8px;
+  border: 1px solid #3a3f47;
+  border-radius: 4px;
+  background: #1f2329;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.ide-tooltip code,
+.script-docs code {
+  padding: 0 3px;
+  border-radius: 3px;
+  background: #14161a;
+  font: 12px ui-monospace, Consolas, monospace;
+}
