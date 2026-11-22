@@ -1628,3 +1628,70 @@ body {
   color: #8b93a0;
   font-size: 12px;
 }
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.dialog {
+  display: grid;
+  gap: 10px;
+  width: min(420px, 92vw);
+  padding: 20px;
+  border: 1px solid #3a3f47;
+  border-radius: 10px;
+  background: #1f2329;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}
+
+.dialog h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.dialog-field {
+  display: grid;
+  gap: 4px;
+  color: #b4bcc8;
+  font-size: 12px;
+}
+
+.dialog-field input {
+  padding: 8px 10px;
+  border: 1px solid #3a3f47;
+  border-radius: 6px;
+  background: #14161a;
+  color: #e6e8eb;
+  font: 14px system-ui, sans-serif;
+}
+
+.dialog-hint {
+  margin: 0;
+  color: #8b93a0;
+  font-size: 12px;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.dialog-actions button {
+  padding: 6px 14px;
+  border: 1px solid #3a3f47;
+  border-radius: 6px;
+  background: #2b4a7a;
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.dialog-actions button[type='button'] {
+  background: transparent;
+  color: #b4bcc8;
+}
