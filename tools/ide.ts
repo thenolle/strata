@@ -15,6 +15,7 @@ export interface CompletionOut {
 	readonly insert: string
 	readonly from: number | undefined
 	readonly sort: string
+	readonly raw: unknown
 }
 
 export interface DiagnosticOut {
@@ -24,6 +25,7 @@ export interface DiagnosticOut {
 	readonly endCharacter: number
 	readonly severity: number
 	readonly message: string
+	readonly code?: string | number
 }
 
 export interface TextEditOut {
@@ -44,6 +46,59 @@ export interface SignatureOut {
 export interface DefinitionOut {
 	readonly local?: { readonly line: number; readonly character: number }
 	readonly external?: { readonly file: string; readonly text: string }
+	readonly other?: { readonly path: string; readonly line: number; readonly character: number }
+}
+
+export interface RangeOut {
+	readonly line: number
+	readonly character: number
+	readonly endLine: number
+	readonly endCharacter: number
+}
+
+export interface LocationOut {
+	readonly path: string
+	readonly line: number
+	readonly character: number
+	readonly text: string
+}
+
+export interface SymbolOut {
+	readonly name: string
+	readonly kind: number
+	readonly line: number
+	readonly character: number
+	readonly depth: number
+}
+
+export interface FileEdits {
+	readonly path: string
+	readonly edits: TextEditOut[]
+}
+
+export interface ActionOut {
+	readonly title: string
+	readonly edits: TextEditOut[]
+	readonly others: FileEdits[]
+	readonly preferred: boolean
+}
+
+export interface ResolveOut {
+	readonly detail: string
+	readonly documentation: string
+	readonly edits: TextEditOut[]
+}
+
+interface WorkspaceEditRaw {
+	readonly changes?: Readonly<Record<string, unknown>>
+	readonly documentChanges?: readonly { readonly textDocument?: { readonly uri: string }; readonly edits?: unknown }[]
+}
+
+interface CodeActionRaw {
+	readonly title?: unknown
+	readonly edit?: WorkspaceEditRaw
+	readonly data?: unknown
+	readonly isPreferred?: boolean
 }
 
 interface Position {
@@ -54,6 +109,20 @@ interface Position {
 interface LspRange {
 	readonly start: Position
 	readonly end: Position
+}
+
+function rangeOf(value: unknown): RangeOut | undefined {
+	const item = value as Partial<Record<keyof RangeOut, unknown>> | null
+	const keys = ['line', 'character', 'endLine', 'endCharacter'] as const
+	if (typeof item !== 'object' || item === null || !keys.every((key) => typeof item[key] === 'number' && Number.isInteger(item[key]) && (item[key] as number) >= 0)) return undefined
+	return { line: item.line as number, character: item.character as number, endLine: item.endLine as number, endCharacter: item.endCharacter as number }
+}
+
+function diagnosticOf(value: unknown): DiagnosticOut[] {
+	const range = rangeOf(value)
+	const item = value as { readonly severity?: unknown; readonly message?: unknown; readonly code?: unknown }
+	if (range === undefined || typeof item.message !== 'string') return []
+	return [{ ...range, severity: typeof item.severity === 'number' ? item.severity : 1, message: item.message, ...(typeof item.code === 'string' || typeof item.code === 'number' ? { code: item.code } : {}) }]
 }
 
 function uriFile(uri: string): string {
@@ -97,7 +166,8 @@ function normalize(raw: unknown): CompletionOut[] {
 			detail: typeof item.detail === 'string' ? item.detail : '',
 			insert: text.replace(/\$\{\d+:([^}]*)\}|\$\{\d+\}|\$\d+/g, '$1'),
 			from: range !== undefined && range.start.line === range.end.line ? range.start.character : undefined,
-			sort: typeof item.sortText === 'string' ? item.sortText : item.label
+			sort: typeof item.sortText === 'string' ? item.sortText : item.label,
+			raw
 		}
 	]
 }
@@ -217,14 +287,18 @@ export class Ide {
 			// The server only publishes diagnostics: use those.
 		}
 		raw ??= client.diagnostics.get(basename(file)) ?? []
-		return raw.map((item) => ({
-			line: item.range.start.line,
-			character: item.range.start.character,
-			endLine: item.range.end.line,
-			endCharacter: item.range.end.character,
-			severity: item.severity ?? 1,
-			message: item.message
-		}))
+		return raw.map((item) => {
+			const code = (item as { readonly code?: unknown }).code
+			return {
+				line: item.range.start.line,
+				character: item.range.start.character,
+				endLine: item.range.end.line,
+				endCharacter: item.range.end.character,
+				severity: item.severity ?? 1,
+				message: item.message,
+				...(typeof code === 'string' || typeof code === 'number' ? { code } : {})
+			}
+		})
 	}
 
 	async close(name: string): Promise<void> {
@@ -288,7 +362,22 @@ export class Ide {
 				case 'rename': {
 					const newName = input['newName']
 					if (!hasPosition || typeof newName !== 'string' || !/^[A-Za-z_$][\w$]*$/.test(newName)) return { ok: false, error: 'Invalid name' }
-					return { ok: true, edits: await this.rename(name, line, character, newName) }
+					const result = await this.rename(name, line, character, newName)
+					return { ok: true, edits: result.own, others: result.others }
+				}
+				case 'resolve':
+					return { ok: true, ...(await this.resolve(name, input['item'])) }
+				case 'references':
+					return hasPosition ? { ok: true, items: await this.references(name, line, character) } : { ok: false, error: 'Invalid position' }
+				case 'symbols':
+					return { ok: true, items: await this.symbols(name) }
+				case 'highlights':
+					return hasPosition ? { ok: true, items: await this.highlights(name, line, character) } : { ok: false, error: 'Invalid position' }
+				case 'actions': {
+					const range = rangeOf(input['range'])
+					if (range === undefined) return { ok: false, error: 'Invalid range' }
+					const diagnostics = Array.isArray(input['diagnostics']) ? (input['diagnostics'] as unknown[]).flatMap(diagnosticOf) : []
+					return { ok: true, items: await this.actions(name, range, diagnostics) }
 				}
 				case 'diagnostics':
 					return { ok: true, diagnostics: await this.diagnostics(name) }
@@ -347,6 +436,7 @@ export class Ide {
 		if (uri === undefined || range === undefined) return undefined
 		const target = this.#relative(uri)
 		if (target === file) return { local: { line: range.start.line, character: range.start.character } }
+		if (target !== undefined && target.startsWith('project/')) return { other: { path: target.slice('project/'.length), line: range.start.line, character: range.start.character } }
 		let text = ''
 		if (target !== undefined) {
 			try {
@@ -382,23 +472,119 @@ export class Ide {
 		return toEdits(await client.request('textDocument/formatting', { textDocument: { uri: this.#uri(file) }, options: { tabSize: 2, insertSpaces: false } }))
 	}
 
-	async rename(name: string, line: number, character: number, newName: string): Promise<TextEditOut[]> {
+	#splitEdit(edit: WorkspaceEditRaw, file: string): { readonly own: TextEditOut[]; readonly others: FileEdits[] } | undefined {
+		const own: TextEditOut[] = []
+		const others = new Map<string, TextEditOut[]>()
+		const take = (uri: string, list: unknown): boolean => {
+			const target = this.#relative(uri)
+			if (target === undefined || !target.startsWith('project/')) return false
+			if (target === file) {
+				own.push(...toEdits(list))
+				return true
+			}
+			const path = target.slice('project/'.length)
+			others.set(path, [...(others.get(path) ?? []), ...toEdits(list)])
+			return true
+		}
+		for (const [uri, list] of Object.entries(edit.changes ?? {})) if (!take(uri, list)) return undefined
+		for (const change of edit.documentChanges ?? []) if (change.textDocument === undefined || !take(change.textDocument.uri, change.edits)) return undefined
+		return { own, others: [...others].map(([path, edits]) => ({ path, edits })) }
+	}
+
+	async rename(name: string, line: number, character: number, newName: string): Promise<{ readonly own: TextEditOut[]; readonly others: FileEdits[] }> {
+		const client = await this.#ensure()
+		const file = this.#fileOf(name)
+		if (!this.#versions.has(file)) return { own: [], others: [] }
+		const result = (await client.request('textDocument/rename', { textDocument: { uri: this.#uri(file) }, position: { line, character }, newName })) as WorkspaceEditRaw | null
+		if (result === null) return { own: [], others: [] }
+		const split = this.#splitEdit(result, file)
+		if (split === undefined) throw new Error('This rename would change files outside the project')
+		return split
+	}
+
+	async resolve(name: string, raw: unknown): Promise<ResolveOut> {
+		const client = await this.#ensure()
+		if (!this.#versions.has(this.#fileOf(name)) || typeof raw !== 'object' || raw === null) return { detail: '', documentation: '', edits: [] }
+		const item = (await client.request('completionItem/resolve', raw)) as { readonly detail?: unknown; readonly documentation?: unknown; readonly additionalTextEdits?: unknown } | null
+		return { detail: typeof item?.detail === 'string' ? item.detail : '', documentation: textOf(item?.documentation), edits: toEdits(item?.additionalTextEdits) }
+	}
+
+	async references(name: string, line: number, character: number): Promise<LocationOut[]> {
 		const client = await this.#ensure()
 		const file = this.#fileOf(name)
 		if (!this.#versions.has(file)) return []
-		const result = (await client.request('textDocument/rename', { textDocument: { uri: this.#uri(file) }, position: { line, character }, newName })) as {
-			readonly changes?: Readonly<Record<string, unknown>>
-			readonly documentChanges?: readonly { readonly textDocument?: { readonly uri: string }; readonly edits?: unknown }[]
-		} | null
-		const edits: TextEditOut[] = []
-		let foreign = false
-		const take = (uri: string, list: unknown): void => {
-			if (this.#relative(uri) === file) edits.push(...toEdits(list))
-			else if (Array.isArray(list) && list.length > 0) foreign = true
+		const result = await client.request('textDocument/references', { textDocument: { uri: this.#uri(file) }, position: { line, character }, context: { includeDeclaration: true } })
+		if (!Array.isArray(result)) return []
+		const out: LocationOut[] = []
+		for (const item of result as readonly { readonly uri: string; readonly range: LspRange }[]) {
+			const target = this.#relative(item.uri)
+			if (target === undefined || !target.startsWith('project/')) continue
+			const text = (this.#texts.get(target) ?? '').split('\n')[item.range.start.line] ?? ''
+			out.push({ path: target.slice('project/'.length), line: item.range.start.line, character: item.range.start.character, text: text.trim().slice(0, 140) })
+			if (out.length >= 200) break
 		}
-		for (const [uri, list] of Object.entries(result?.changes ?? {})) take(uri, list)
-		for (const change of result?.documentChanges ?? []) if (change.textDocument !== undefined) take(change.textDocument.uri, change.edits)
-		if (foreign) throw new Error('This name is used in other scripts. Renaming across files is not supported yet.')
-		return edits
+		return out
+	}
+
+	async symbols(name: string): Promise<SymbolOut[]> {
+		const client = await this.#ensure()
+		const file = this.#fileOf(name)
+		if (!this.#versions.has(file)) return []
+		const result = await client.request('textDocument/documentSymbol', { textDocument: { uri: this.#uri(file) } })
+		const out: SymbolOut[] = []
+		const walk = (list: unknown, depth: number): void => {
+			if (!Array.isArray(list)) return
+			for (const raw of list as readonly { readonly name?: unknown; readonly kind?: number; readonly selectionRange?: LspRange; readonly range?: LspRange; readonly location?: { readonly range: LspRange }; readonly children?: unknown }[]) {
+				const range = raw.selectionRange ?? raw.range ?? raw.location?.range
+				if (typeof raw.name === 'string' && range !== undefined) out.push({ name: raw.name, kind: raw.kind ?? 0, line: range.start.line, character: range.start.character, depth })
+				walk(raw.children, depth + 1)
+			}
+		}
+		walk(result, 0)
+		return out.slice(0, 500)
+	}
+
+	async highlights(name: string, line: number, character: number): Promise<RangeOut[]> {
+		const client = await this.#ensure()
+		const file = this.#fileOf(name)
+		if (!this.#versions.has(file)) return []
+		const result = await client.request('textDocument/documentHighlight', { textDocument: { uri: this.#uri(file) }, position: { line, character } })
+		if (!Array.isArray(result)) return []
+		return (result as readonly { readonly range: LspRange }[]).slice(0, 200).map((item) => ({ line: item.range.start.line, character: item.range.start.character, endLine: item.range.end.line, endCharacter: item.range.end.character }))
+	}
+
+	async actions(name: string, range: RangeOut, diagnostics: readonly DiagnosticOut[]): Promise<ActionOut[]> {
+		const client = await this.#ensure()
+		const file = this.#fileOf(name)
+		if (!this.#versions.has(file)) return []
+		const list = await client.request('textDocument/codeAction', {
+			textDocument: { uri: this.#uri(file) },
+			range: { start: { line: range.line, character: range.character }, end: { line: range.endLine, character: range.endCharacter } },
+			context: {
+				diagnostics: diagnostics.map((item) => ({
+					range: { start: { line: item.line, character: item.character }, end: { line: item.endLine, character: item.endCharacter } },
+					message: item.message,
+					severity: item.severity,
+					source: 'ts',
+					...(item.code === undefined ? {} : { code: item.code })
+				}))
+			}
+		})
+		if (!Array.isArray(list)) return []
+		const out: ActionOut[] = []
+		for (const raw of (list as readonly CodeActionRaw[]).slice(0, 20)) {
+			let action = raw
+			if (action.edit === undefined && action.data !== undefined) {
+				try {
+					action = (await client.request('codeAction/resolve', raw)) as CodeActionRaw
+				} catch {
+					continue
+				}
+			}
+			if (action.edit === undefined || typeof action.title !== 'string') continue
+			const split = this.#splitEdit(action.edit, file)
+			if (split !== undefined) out.push({ title: action.title, edits: split.own, others: split.others, preferred: action.isPreferred === true })
+		}
+		return out.sort((a, b) => Number(b.preferred) - Number(a.preferred)).slice(0, 12)
 	}
 }

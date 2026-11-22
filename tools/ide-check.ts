@@ -51,6 +51,22 @@ try {
 	const imported = await ide.diagnostics('imp')
 	console.log('import', imported.some((item) => item.message.includes('not assignable')), !imported.some((item) => item.message.includes('Cannot find module')))
 	await ide.close('imp')
+	await ide.syncProject([
+		{ path: 'lib/math.ts', text: 'export const double = (value: number): number => value * 2\n' },
+		{ path: 'Other.ts', text: "import { double } from './lib/math'\nexport const four = double(2)\n" }
+	])
+	await ide.sync('lib', 'export const double = (value: number): number => value * 2\n', 'lib/math.ts')
+	const places = await ide.references('lib', 0, 14)
+	console.log('references', places.length >= 2, places.some((place) => place.path === 'Other.ts'))
+	console.log('symbols', (await ide.symbols('lib')).map((symbol) => symbol.name).join(','))
+	const renamed = await ide.rename('lib', 0, 14, 'twice')
+	console.log('rename', renamed.own.length, renamed.others.map((file) => file.path).join(','))
+	await ide.sync('act', "import { dubble } from './lib/math'\nexport default dubble\n", 'Act.ts')
+	const problems = await ide.diagnostics('act')
+	const fixes = await ide.actions('act', { line: 0, character: 10, endLine: 0, endCharacter: 10 }, problems.filter((item) => item.line === 0))
+	console.log('actions', fixes.length > 0)
+	await ide.close('lib')
+	await ide.close('act')
 } finally {
 	ide.dispose()
 }

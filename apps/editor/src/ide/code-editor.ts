@@ -1,8 +1,11 @@
 import { renderGutter, renderLines } from './highlight.ts'
-import type { Completion, Definition, Diagnostic, HoverInfo, IdeClient, Signature, TextEdit } from './ide-client.ts'
 import { renderMarkdown } from './markdown.ts'
-import { applyTextEdits, autoClose, duplicateLines, findAll, findBracketMatch, indentLines, moveLines, toggleComment, type Edit } from './editing.ts'
 import { FindWidget, quickInput } from './find-widget.ts'
+import { applyTextEdits, autoClose, duplicateLines, findAll, findBracketMatch, indentLines, moveLines, offsetAt, toggleComment, type Edit } from './editing.ts'
+import { fuzzyScore } from './fuzzy.ts'
+import { expandSnippet, SNIPPETS } from './snippets.ts'
+import { quickPick, type PickItem } from './quick-pick.ts'
+import type { CodeAction, Completion, Definition, Diagnostic, FileEdits, HoverInfo, IdeClient, Place, RenameResult, Resolved, Signature, TextEdit } from './ide-client.ts'
 
 const LINE_HEIGHT = 20
 const PADDING = 12
@@ -11,8 +14,8 @@ const CHANGE_DELAY_MS = 120
 const COMPLETE_DELAY_MS = 60
 const POLL_MS = 500
 const HOVER_DELAY_MS = 350
-const MAX_ITEMS = 10
-const BADGES: Readonly<Record<number, string>> = { 2: 'm', 3: 'f', 4: 'c', 5: 'p', 6: 'v', 7: 'C', 8: 'I', 9: 'M', 10: 'p', 14: 'k', 21: 'c', 22: 'S', 25: 'T' }
+const BADGES: Readonly<Record<number, string>> = { 2: 'm', 3: 'f', 4: 'c', 5: 'p', 6: 'v', 7: 'C', 8: 'I', 9: 'M', 10: 'p', 14: 'k', 15: 's', 21: 'c', 22: 'S', 25: 'T' }
+const SYMBOL_KINDS: Readonly<Record<number, string>> = { 2: 'module', 5: 'class', 6: 'method', 7: 'property', 8: 'field', 9: 'constructor', 10: 'enum', 11: 'interface', 12: 'function', 13: 'variable', 14: 'constant', 23: 'struct', 26: 'type parameter' }
 
 export interface CodeEditorOptions {
 	/** Document name, unique among open documents, letters, digits, hyphens and underscores. */
@@ -27,6 +30,8 @@ export interface CodeEditorOptions {
 	readonly onCursor: (line: number, column: number) => void
 	readonly onStatus: (text: string) => void
 	readonly path: () => string
+	readonly onNavigate: (path: string, line: number, character: number) => void
+	readonly onOtherEdits: (files: readonly FileEdits[]) => void
 }
 
 function visualColumn(line: string, column: number): number {
@@ -72,6 +77,14 @@ export class CodeEditor {
 		onReplaceAll: () => this.#replaceAll(),
 		onClose: () => this.#closeFind()
 	})
+	readonly #docs = document.createElement('div')
+	readonly #lineMark = document.createElement('div')
+	readonly #resolved = new WeakMap<object, Resolved>()
+	#wordMarks: Diagnostic[] = []
+	#wordTimer: ReturnType<typeof setTimeout> | undefined
+	#docsTimer: ReturnType<typeof setTimeout> | undefined
+	#pick: (() => void) | undefined
+	#snippet: { length: number; current: number; stops: { start: number; end: number }[] } | undefined
 	#renderedText = ''
 	#renderedMarks = ''
 	#renderedDiagnostics = ''
@@ -124,7 +137,10 @@ export class CodeEditor {
 		this.element.append(this.#gutter, this.#body)
 		this.#signatureTip.className = 'ide-tooltip ide-signature'
 		this.#signatureTip.hidden = true
-		this.#body.append(this.#highlight, this.#input, this.#popup, this.#tooltip, this.#signatureTip, this.#find.element)
+		this.#lineMark.className = 'ide-line'
+		this.#docs.className = 'ide-tooltip ide-docs'
+		this.#docs.hidden = true
+		this.#body.append(this.#lineMark, this.#highlight, this.#input, this.#popup, this.#docs, this.#tooltip, this.#signatureTip, this.#find.element)
 		this.#input.addEventListener('input', this.#onInput)
 		this.#input.addEventListener('keydown', this.#onKeyDown)
 		this.#input.addEventListener('keyup', this.#reportCursor)
@@ -176,8 +192,11 @@ export class CodeEditor {
 		clearTimeout(this.#completeTimer)
 		clearTimeout(this.#hoverTimer)
 		clearTimeout(this.#signatureTimer)
+		clearTimeout(this.#wordTimer)
+		clearTimeout(this.#docsTimer)
 		clearInterval(this.#poll)
 		this.#quick?.()
+		this.#pick?.()
 		void this.#options.client.close(this.#options.name).catch(() => undefined)
 		this.element.remove()
 	}
@@ -197,7 +216,7 @@ export class CodeEditor {
 
 	#render(): void {
 		const text = this.#input.value
-		const marks = this.#hoverMark === undefined ? this.#marks : [...this.#marks, this.#hoverMark]
+		const marks = [...this.#marks, ...this.#wordMarks, ...(this.#hoverMark === undefined ? [] : [this.#hoverMark])]
 		const marksKey = JSON.stringify(marks)
 		if (text === this.#renderedText && marksKey === this.#renderedMarks && this.#diagnosticsKey === this.#renderedDiagnostics) return
 		this.#renderedText = text
@@ -275,8 +294,9 @@ export class CodeEditor {
 	async #complete(manual: boolean): Promise<void> {
 		const at = this.#position()
 		const prefix = at.lineText.slice(at.wordStart, at.character)
-		const afterDot = at.lineText.charAt(at.character - 1) === '.'
-		if (!manual && prefix === '' && !afterDot) {
+		const afterDot = at.lineText.charAt(at.character - 1) === '.' || at.lineText.charAt(at.wordStart - 1) === '.'
+		const inPath = /(?:from\s+|import\s+)['"][^'"]*$/.test(at.lineText.slice(0, at.character))
+		if (!manual && prefix === '' && !afterDot && !inPath) {
 			this.#hidePopup()
 			return
 		}
@@ -284,12 +304,14 @@ export class CodeEditor {
 		await this.#send()
 		const items = await this.#options.client.completion(this.#options.name, at.line, at.character).catch((): readonly Completion[] => [])
 		if (id !== this.#requestId || this.#disposed) return
-		const lower = prefix.toLowerCase()
-		const starts = (item: Completion): number => (item.label.toLowerCase().startsWith(lower) ? 1 : 0)
-		this.#items = items
-			.filter((item) => item.label.toLowerCase().includes(lower))
-			.sort((a, b) => starts(b) - starts(a) || a.sort.localeCompare(b.sort))
-			.slice(0, MAX_ITEMS)
+		const snippets: Completion[] = afterDot || inPath || prefix === '' ? [] : SNIPPETS.map((snippet) => ({ label: snippet.label, kind: 15, detail: snippet.detail, insert: snippet.body, sort: `~${snippet.label}`, from: at.wordStart, snippet: true }))
+		const scored: { readonly item: Completion; readonly score: number }[] = []
+		for (const item of [...items, ...snippets]) {
+			const score = fuzzyScore(prefix, item.label)
+			if (score !== undefined) scored.push({ item, score })
+		}
+		scored.sort((a, b) => b.score - a.score || a.item.sort.localeCompare(b.item.sort))
+		this.#items = scored.slice(0, 40).map((entry) => entry.item)
 		this.#selected = 0
 		if (this.#items.length === 0) {
 			this.#hidePopup()
@@ -308,7 +330,7 @@ export class CodeEditor {
 				const row = document.createElement('li')
 				row.dataset['active'] = String(index === this.#selected)
 				const badge = document.createElement('span')
-				badge.className = 'ide-badge'
+				badge.className = `ide-badge ide-badge-${BADGES[item.kind] ?? 'x'}`
 				badge.textContent = BADGES[item.kind] ?? '·'
 				const label = document.createElement('span')
 				label.textContent = item.label
@@ -318,27 +340,107 @@ export class CodeEditor {
 				row.append(badge, label, detail)
 				row.addEventListener('mousedown', (event) => {
 					event.preventDefault()
-					this.#accept(item)
+					void this.#accept(item)
 				})
 				return row
 			})
 		)
 		this.#popup.querySelector('[data-active="true"]')?.scrollIntoView({ block: 'nearest' })
+		this.#scheduleDocs()
 	}
 
 	#hidePopup(): void {
 		this.#popup.hidden = true
+		this.#docs.hidden = true
 		this.#requestId++
 	}
 
-	#accept(item: Completion): void {
+	#scheduleDocs(): void {
+		clearTimeout(this.#docsTimer)
+		this.#docs.hidden = true
+		const item = this.#items[this.#selected]
+		if (item === undefined || typeof item.raw !== 'object' || item.raw === null) return
+		this.#docsTimer = setTimeout(() => void this.#showDocs(item), 120)
+	}
+
+	async #resolve(item: Completion): Promise<Resolved | undefined> {
+		const raw = item.raw
+		if (typeof raw !== 'object' || raw === null) return undefined
+		const known = this.#resolved.get(raw)
+		if (known !== undefined) return known
+		const result = await this.#options.client.resolve(this.#options.name, raw).catch((): Resolved | undefined => undefined)
+		if (result !== undefined) this.#resolved.set(raw, result)
+		return result
+	}
+
+	async #showDocs(item: Completion): Promise<void> {
+		const result = await this.#resolve(item)
+		if (result === undefined || this.#popup.hidden || this.#items[this.#selected] !== item) return
+		if (result.detail === '' && result.documentation === '') return
+		this.#docs.replaceChildren()
+		if (result.detail !== '') {
+			const code = document.createElement('div')
+			code.className = 'ide-signature-label'
+			code.textContent = result.detail
+			this.#docs.append(code)
+		}
+		if (result.documentation !== '') this.#docs.append(renderMarkdown(result.documentation))
+		this.#docs.style.left = `${this.#popup.offsetLeft + this.#popup.offsetWidth + 6}px`
+		this.#docs.style.top = `${this.#popup.offsetTop}px`
+		this.#docs.hidden = false
+	}
+
+	async #accept(item: Completion): Promise<void> {
 		const at = this.#position()
-		const from = item.from ?? at.wordStart
-		this.#suppress = true
-		this.#input.setSelectionRange(at.lineStart + from, this.#input.selectionStart)
-		this.#insert(item.insert)
-		this.#suppress = false
+		const from = at.lineStart + (item.from ?? at.wordStart)
+		const to = this.#input.selectionStart
 		this.#hidePopup()
+		if (item.snippet === true) {
+			this.#insertSnippet(from, to, item.insert)
+			return
+		}
+		const extra = item.raw === undefined ? [] : ((await this.#resolve(item))?.edits ?? [])
+		this.#suppress = true
+		if (extra.length === 0) {
+			this.#input.setSelectionRange(from, to)
+			this.#insert(item.insert)
+		} else {
+			this.#applyWithExtras(from, to, item.insert, extra)
+		}
+		this.#suppress = false
+	}
+
+	#applyWithExtras(from: number, to: number, insert: string, extra: readonly TextEdit[]): void {
+		const value = this.#input.value
+		const edits = [{ from, to, newText: insert }, ...extra.map((edit) => ({ from: offsetAt(value, edit.line, edit.character), to: offsetAt(value, edit.endLine, edit.endCharacter), newText: edit.newText }))]
+		const shift = edits.slice(1).filter((edit) => edit.to <= from).reduce((total, edit) => total + edit.newText.length - (edit.to - edit.from), 0)
+		let text = value
+		for (const edit of [...edits].sort((a, b) => b.from - a.from)) text = text.slice(0, edit.from) + edit.newText + text.slice(edit.to)
+		this.#replaceWhole(text, from + insert.length + shift)
+	}
+
+	#insertSnippet(from: number, to: number, body: string): void {
+		const indent = /^[\t ]*/.exec(this.#position().lineText)?.[0] ?? ''
+		const expanded = expandSnippet(body, indent)
+		this.#suppress = true
+		this.#input.setSelectionRange(from, to)
+		this.#insert(expanded.text)
+		this.#suppress = false
+		this.#snippet = { length: this.#input.value.length, current: -1, stops: expanded.stops.map((stop) => ({ start: from + stop.start, end: from + stop.end })) }
+		this.#nextStop()
+	}
+
+	#nextStop(): void {
+		const session = this.#snippet
+		if (session === undefined) return
+		session.current++
+		const stop = session.stops[session.current]
+		if (stop === undefined) {
+			this.#snippet = undefined
+			return
+		}
+		this.#input.setSelectionRange(stop.start, stop.end)
+		if (session.current === session.stops.length - 1) this.#snippet = undefined
 	}
 
 	async #hover(clientX: number, clientY: number): Promise<void> {
@@ -394,13 +496,63 @@ export class CodeEditor {
 	}
 
 	readonly #reportCursor = (): void => {
+		this.#updateLine()
+		this.#scheduleWord()
 		if (!this.#measured) this.#measure()
 		const at = this.#position()
 		this.#options.onCursor(at.line + 1, at.character + 1)
 		this.#updateMarks()
 	}
 
+	#updateLine(): void {
+		this.#lineMark.style.top = `${PADDING + this.#position().line * LINE_HEIGHT - this.#input.scrollTop}px`
+	}
+
+	#scheduleWord(): void {
+		clearTimeout(this.#wordTimer)
+		this.#wordTimer = setTimeout(() => void this.#highlightWord(), 250)
+	}
+
+	async #highlightWord(): Promise<void> {
+		if (this.#disposed) return
+		const at = this.#position()
+		const near = at.lineText.charAt(at.character - 1) + at.lineText.charAt(at.character)
+		if (!/[\w$]/.test(near)) {
+			if (this.#wordMarks.length > 0) {
+				this.#wordMarks = []
+				this.#render()
+			}
+			return
+		}
+		const text = this.#input.value
+		await this.#send()
+		const list = await this.#options.client.highlights(this.#options.name, at.line, at.character).catch(() => [])
+		if (this.#disposed || this.#input.value !== text) return
+		this.#wordMarks = list.length > 1 ? list.map((range) => ({ ...range, severity: -4, message: '' })) : []
+		this.#render()
+	}
+
 	readonly #onInput = (): void => {
+		this.#wordMarks = []
+		const session = this.#snippet
+		if (session !== undefined) {
+			const delta = this.#input.value.length - session.length
+			const stop = session.stops[session.current]
+			const caret = this.#input.selectionStart
+			if (stop === undefined || caret < stop.start || caret > stop.end + delta) {
+				this.#snippet = undefined
+			} else {
+				session.length += delta
+				stop.end += delta
+				for (let index = session.current + 1; index < session.stops.length; index++) {
+					const later = session.stops[index]
+					if (later !== undefined) {
+						later.start += delta
+						later.end += delta
+					}
+				}
+			}
+		}
 		this.#render()
 		this.#hideTooltip()
 		this.#options.onChange(this.#input.value)
@@ -424,6 +576,7 @@ export class CodeEditor {
 		this.#gutter.scrollTop = this.#input.scrollTop
 		this.#hideTooltip()
 		if (!this.#popup.hidden) this.#hidePopup()
+		this.#updateLine()
 	}
 
 	readonly #onBlur = (): void => {
@@ -451,7 +604,7 @@ export class CodeEditor {
 				const item = this.#items[this.#selected]
 				if (item !== undefined) {
 					event.preventDefault()
-					this.#accept(item)
+					void this.#accept(item)
 					return
 				}
 			}
@@ -503,6 +656,18 @@ export class CodeEditor {
 		} else if (command && event.shiftKey && lower === 'i') {
 			event.preventDefault()
 			void this.#format()
+		} else if (command && key === '.') {
+			event.preventDefault()
+			void this.#quickFix()
+		} else if (command && event.shiftKey && lower === 'o') {
+			event.preventDefault()
+			void this.#symbols()
+		} else if (event.shiftKey && key === 'F12') {
+			event.preventDefault()
+			void this.#references()
+		} else if (key === 'Tab' && this.#snippet !== undefined && !event.shiftKey) {
+			event.preventDefault()
+			this.#nextStop()
 		} else if (key === 'F12') {
 			event.preventDefault()
 			const at = this.#position()
@@ -523,6 +688,7 @@ export class CodeEditor {
 			this.#insertNewline()
 		} else if (key === 'Escape') {
 			event.stopPropagation()
+			this.#snippet = undefined
 			if (this.#find.isOpen) this.#closeFind()
 			else if (this.#signatureOpen) this.#hideSignature()
 			else this.#options.onClose()
@@ -550,10 +716,10 @@ export class CodeEditor {
 		this.#updateMarks()
 	}
 
-	#replaceWhole(text: string): void {
+	#replaceWhole(text: string, target?: number): void {
+		const caret = target ?? this.#input.selectionStart
 		const top = this.#input.scrollTop
 		const left = this.#input.scrollLeft
-		const caret = this.#input.selectionStart
 		this.#input.focus()
 		this.#input.select()
 		this.#insert(text)
@@ -684,8 +850,15 @@ export class CodeEditor {
 	async #doRename(line: number, character: number, newName: string): Promise<void> {
 		if (!/^[A-Za-z_$][\w$]*$/.test(newName)) return
 		await this.#send()
-		const edits = await this.#options.client.rename(this.#options.name, line, character, newName).catch((): readonly TextEdit[] => [])
-		if (edits.length > 0) this.#replaceWhole(applyTextEdits(this.#input.value, edits))
+		let result: RenameResult
+		try {
+			result = await this.#options.client.rename(this.#options.name, line, character, newName)
+		} catch (error: unknown) {
+			this.#options.onStatus(error instanceof Error ? error.message : String(error))
+			return
+		}
+		this.applyEdits(result.edits)
+		if (result.others.length > 0) this.#options.onOtherEdits(result.others)
 	}
 
 	/** Formats the whole document with the TypeScript formatter and reports the outcome through onStatus. */
@@ -755,6 +928,10 @@ export class CodeEditor {
 			this.reveal(result.local.line, result.local.character)
 			return
 		}
+		if (result.other !== undefined) {
+			this.#options.onNavigate(result.other.path, result.other.line, result.other.character)
+			return
+		}
 		if (result.external === undefined) return
 		const title = document.createElement('div')
 		title.className = 'ide-tooltip-error'
@@ -764,6 +941,87 @@ export class CodeEditor {
 		this.#signatureOpen = false
 		this.#signatureTip.replaceChildren(title, code)
 		this.#placeTip(this.#signatureTip, this.#position())
+	}
+
+	#showPick<T>(placeholder: string, items: readonly PickItem<T>[], onPick: (value: T) => void): void {
+		this.#pick?.()
+		this.#pick = quickPick(this.#body, {
+			placeholder,
+			items,
+			onPick,
+			onClose: () => {
+				this.#pick = undefined
+				this.#input.focus()
+			}
+		})
+	}
+
+	async #quickFix(): Promise<void> {
+		await this.#send()
+		const a = this.#lineColumn(this.#input.selectionStart)
+		const b = this.#lineColumn(this.#input.selectionEnd)
+		const near = this.#diagnostics.filter((item) => item.line <= b.line && item.endLine >= a.line && (item.line < b.line || item.character <= b.character) && (item.endLine > a.line || item.endCharacter >= a.character))
+		const actions = await this.#options.client.actions(this.#options.name, { line: a.line, character: a.character, endLine: b.line, endCharacter: b.character }, near).catch((): readonly CodeAction[] => [])
+		if (actions.length === 0) {
+			this.#options.onStatus('No quick fixes available here')
+			return
+		}
+		this.#showPick('Quick fix', actions.map((action) => ({ label: action.title, detail: action.preferred ? 'preferred' : '', value: action })), (action) => {
+			this.applyEdits(action.edits)
+			if (action.others.length > 0) this.#options.onOtherEdits(action.others)
+		})
+	}
+
+	async #symbols(): Promise<void> {
+		await this.#send()
+		const list = await this.#options.client.symbols(this.#options.name).catch(() => [])
+		if (list.length === 0) {
+			this.#options.onStatus('No symbols found')
+			return
+		}
+		this.#showPick('Go to symbol', list.map((symbol) => ({ label: symbol.name, detail: `${'  '.repeat(symbol.depth)}${SYMBOL_KINDS[symbol.kind] ?? 'symbol'} · line ${symbol.line + 1}`, value: symbol })), (symbol) => this.reveal(symbol.line, symbol.character))
+	}
+
+	async #references(): Promise<void> {
+		const at = this.#position()
+		await this.#send()
+		const list = await this.#options.client.references(this.#options.name, at.line, at.character).catch((): readonly Place[] => [])
+		if (list.length === 0) {
+			this.#options.onStatus('No references found')
+			return
+		}
+		const own = this.#options.path()
+		this.#showPick(`${list.length} reference${list.length === 1 ? '' : 's'}`, list.map((place) => ({ label: `${place.path}:${place.line + 1}`, detail: place.text, value: place })), (place) => {
+			if (place.path === own) this.reveal(place.line, place.character)
+			else this.#options.onNavigate(place.path, place.line, place.character)
+		})
+	}
+
+	/** Applies language server edits to this document as one undoable step. */
+	applyEdits(edits: readonly TextEdit[]): void {
+		if (edits.length > 0) this.#replaceWhole(applyTextEdits(this.#input.value, edits))
+	}
+
+	/** Replaces the whole text as one undoable step. */
+	setText(text: string): void {
+		this.#replaceWhole(text, 0)
+	}
+
+	/** The commands the IDE palette offers for this editor. */
+	get commands(): readonly { readonly label: string; readonly keys: string; readonly run: () => void }[] {
+		const at = (): { readonly line: number; readonly character: number } => this.#position()
+		return [
+			{ label: 'Format Document', keys: 'Ctrl+Shift+I', run: () => this.formatDocument() },
+			{ label: 'Find', keys: 'Ctrl+F', run: () => this.#openFind(false) },
+			{ label: 'Replace', keys: 'Ctrl+H', run: () => this.#openFind(true) },
+			{ label: 'Go to Line…', keys: 'Ctrl+G', run: () => this.#gotoLine() },
+			{ label: 'Go to Symbol…', keys: 'Ctrl+Shift+O', run: () => void this.#symbols() },
+			{ label: 'Go to Definition', keys: 'F12', run: () => void this.#definition(at().line, at().character) },
+			{ label: 'Find All References', keys: 'Shift+F12', run: () => void this.#references() },
+			{ label: 'Quick Fix…', keys: 'Ctrl+.', run: () => void this.#quickFix() },
+			{ label: 'Rename Symbol', keys: 'F2', run: () => this.#rename() },
+			{ label: 'Toggle Line Comment', keys: 'Ctrl+/', run: () => this.#apply(toggleComment(this.#input.value, this.#input.selectionStart, this.#input.selectionEnd)) }
+		]
 	}
 
 	readonly #onMouseDown = (event: MouseEvent): void => {

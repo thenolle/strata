@@ -18,6 +18,7 @@ const KEYWORDS = new Set('abstract as async await break case catch class const c
 const PRIMITIVES = new Set(['string', 'number', 'boolean', 'any', 'unknown', 'never', 'object', 'symbol', 'bigint'])
 const NUMBER = /^(?:0[xX][0-9a-fA-F_]+|\d[\d_]*\.?\d*(?:[eE][+-]?\d+)?|\.\d+)/
 const IDENTIFIER = /^[A-Za-z_$][\w$]*/
+const TOKEN_CACHE = new Map<string, { readonly tokens: Token[]; readonly state: LineState }>()
 
 function summary(message: string): string {
 	const first = message.split('\n')[0] ?? ''
@@ -139,6 +140,7 @@ function markClass(severity: number): string {
 		case -1: return ' find-match'
 		case -2: return ' find-current'
 		case -3: return ' hover-range'
+		case -4: return ' word-highlight'
 		default: return ' squiggle-warning'
 	}
 }
@@ -168,6 +170,16 @@ function renderLine(tokens: readonly Token[], ranges: readonly LineRange[]): str
 	return html
 }
 
+function tokenizeCached(line: string, state: LineState): { readonly tokens: Token[]; readonly state: LineState } {
+	const key = `${state}|${line}`
+	const known = TOKEN_CACHE.get(key)
+	if (known !== undefined) return known
+	const result = tokenizeLine(line, state)
+	if (TOKEN_CACHE.size > 4000) TOKEN_CACHE.clear()
+	TOKEN_CACHE.set(key, result)
+	return result
+}
+
 /**
  * Renders the whole document as highlighted HTML, one text line per line, with diagnostics underlined.
  */
@@ -195,7 +207,7 @@ export function renderLines(text: string, diagnostics: readonly Diagnostic[]): s
 	let state: LineState = 'code'
 	const html: string[] = []
 	for (let index = 0; index < lines.length; index++) {
-		const result = tokenizeLine(lines[index] ?? '', state)
+		const result = tokenizeCached(lines[index] ?? '', state)
 		state = result.state
 		const note = notes.get(index)
 		const inline = note === undefined ? '' : `<span class="ide-inline ${note.severity === 1 ? 'ide-inline-error' : 'ide-inline-warning'}">${escapeHtml(summary(note.message))}</span>`

@@ -18,6 +18,7 @@ export type IconName =
 	| 'scale'
 	| 'rect'
 	| 'close'
+	| 'search'
 
 type Part = readonly [tag: string, attributes: Readonly<Record<string, string>>, text?: string]
 
@@ -83,7 +84,11 @@ const ICONS: Readonly<Record<IconName, readonly Part[]>> = {
 		['rect', { x: '2', y: '11', width: '3', height: '3', fill: 'currentColor' }],
 		['rect', { x: '11', y: '11', width: '3', height: '3', fill: 'currentColor' }]
 	],
-	close: [['path', { d: 'M3.5 3.5l9 9M12.5 3.5l-9 9' }]]
+	close: [['path', { d: 'M3.5 3.5l9 9M12.5 3.5l-9 9' }]],
+	search: [
+		['circle', { cx: '7', cy: '7', r: '4.5' }],
+		['path', { d: 'M10.5 10.5 14 14' }]
+	],
 }
 
 const NAMESPACE = 'http://www.w3.org/2000/svg'

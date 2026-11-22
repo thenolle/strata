@@ -12,6 +12,10 @@ import { renderMarkdown } from './ide/markdown.ts'
 import type { Layout } from './layout.ts'
 import { runCompiled } from './ide/runner-client.ts'
 import { bundleScript, collectScripts, scriptPath } from './ide/bundle-client.ts'
+import { applyTextEdits } from './ide/editing.ts'
+import type { FileEdits } from './ide/ide-client.ts'
+import { quickPick, type PickItem } from './ide/quick-pick.ts'
+import { SearchPanel } from './search-panel.tsx'
 
 interface Doc {
 	readonly id: Guid
@@ -83,10 +87,12 @@ export function Workbench(props: {
 	const tabs = signal<readonly Guid[]>([])
 	const active = signal<Guid | undefined>(undefined)
 	const tick = signal(0)
-	const view = signal<'files' | 'docs'>('files')
+	const view = signal<'files' | 'search' | 'docs'>('files')
 	const sidebar = signal(true)
 	const message = signal('')
 	let surface: HTMLElement | undefined
+	let rootEl: HTMLElement | undefined
+	let overlay: (() => void) | undefined
 	let closed = false
 
 	const bump = (): void => tick.update((value) => value + 1)
@@ -171,6 +177,8 @@ export function Workbench(props: {
 				const record = props.session.project.assets.get(id)
 				return record === undefined ? `${id}.ts` : scriptPath(record)
 			},
+			onNavigate: (path, line, character) => void openAt(path, line, character),
+			onOtherEdits: (files) => void applyOtherEdits(files),
 		})
 		const doc: Doc = { id, name: record.name, editor, dirty: false, diagnostics: [], line: 1, column: 1 }
 		open.set(id, doc)
@@ -185,13 +193,109 @@ export function Workbench(props: {
 		props.onClose()
 	}
 
+	const recordAt = (path: string) => props.session.project.assets.list().find((record) => record.kind === 'script' && scriptPath(record) === path)
+
+	const openAt = async (path: string, line: number, character: number): Promise<void> => {
+		const record = recordAt(path)
+		if (record === undefined) {
+			message.set(`Cannot find ${path}`)
+			return
+		}
+		await openScript(record.id)
+		open.get(record.id)?.editor.reveal(line, character)
+	}
+
+	const applyTexts = async (changes: ReadonlyMap<string, string>): Promise<void> => {
+		for (const [path, text] of changes) {
+			const record = recordAt(path)
+			if (record === undefined) continue
+			const doc = open.get(record.id)
+			if (doc !== undefined) {
+				doc.editor.setText(text)
+				continue
+			}
+			const saved = await props.session.project.assets.replaceScript(record.id, new TextEncoder().encode(text))
+			if (!saved.ok) message.set(saved.error.message)
+		}
+		props.session.notifyAssetsChanged()
+		message.set(`Updated ${changes.size} script${changes.size === 1 ? '' : 's'}`)
+		void syncProject()
+	}
+
+	const applyOtherEdits = async (files: readonly FileEdits[]): Promise<void> => {
+		const changes = new Map<string, string>()
+		for (const file of files) {
+			const record = recordAt(file.path)
+			if (record === undefined) continue
+			const doc = open.get(record.id)
+			const source = doc !== undefined ? doc.editor.value : await props.session.project.assets.read(record.id).then((bytes) => (bytes.ok ? new TextDecoder().decode(bytes.value) : undefined))
+			if (source !== undefined) changes.set(file.path, applyTextEdits(source, file.edits))
+		}
+		await applyTexts(changes)
+	}
+
+	const pick = <T,>(placeholder: string, items: readonly PickItem<T>[], onPick: (value: T) => void): void => {
+		overlay?.()
+		if (rootEl === undefined) return
+		overlay = quickPick(rootEl, {
+			placeholder,
+			items,
+			onPick,
+			onClose: () => {
+				overlay = undefined
+				current()?.editor.focus()
+			}
+		})
+	}
+
+	const quickOpen = (): void => {
+		const scripts = props.session.project.assets.list().filter((record) => record.kind === 'script')
+		pick('Go to file', scripts.map((record) => ({ label: record.name, detail: record.folder, value: record.id })), (id) => void openScript(id))
+	}
+
+	const showSearch = (): void => {
+		view.set('search')
+		sidebar.set(true)
+		queueMicrotask(() => rootEl?.querySelector<HTMLInputElement>('.wb-search input')?.focus())
+	}
+
+	const commandPalette = (): void => {
+		const doc = current()
+		const items: PickItem<() => void>[] = [
+			{ label: 'Run Script', detail: 'Ctrl+Enter', value: () => void run() },
+			{ label: 'Go to File…', detail: 'Ctrl+P', value: quickOpen },
+			{ label: 'Search in All Scripts', detail: 'Ctrl+Shift+F', value: showSearch },
+			...(doc === undefined ? [] : doc.editor.commands.map((command) => ({ label: command.label, detail: command.keys, value: command.run }))),
+			{ label: 'Save', detail: 'Ctrl+S', value: () => { const id = active.peek(); if (id !== undefined) void save(id) } },
+			{ label: 'Back to Editor', detail: '', value: requestClose }
+		]
+		pick('Type a command', items, (action) => action())
+	}
+
 	return (
 		<div class="wb-backdrop">
 			<div
 				class="wb"
 				role="dialog"
 				aria-label="Strata IDE"
-				ref={() => {
+				ref={(element: Element) => {
+					rootEl = element as HTMLElement
+					const onKey = (event: Event): void => {
+						const keyboardEvent = event as KeyboardEvent
+						const command = keyboardEvent.ctrlKey || keyboardEvent.metaKey
+						const key = keyboardEvent.key.toLowerCase()
+						if (command && !keyboardEvent.shiftKey && key === 'p') {
+							keyboardEvent.preventDefault()
+							quickOpen()
+						} else if ((command && keyboardEvent.shiftKey && key === 'p') || keyboardEvent.key === 'F1') {
+							keyboardEvent.preventDefault()
+							commandPalette()
+						} else if (command && keyboardEvent.shiftKey && key === 'f') {
+							keyboardEvent.preventDefault()
+							showSearch()
+						}
+					}
+					element.addEventListener('keydown', onKey)
 					effect(() => {
 						const request = props.request()
 						if (request !== undefined) void openScript(request.asset)
@@ -207,6 +311,8 @@ export function Workbench(props: {
 						clearTimeout(syncTimer)
 						changes.dispose()
 						closed = true
+						element.removeEventListener('keydown', onKey)
+						overlay?.()
 						for (const doc of open.values()) doc.editor.dispose()
 						open.clear()
 					})
@@ -237,13 +343,13 @@ export function Workbench(props: {
 				<div class="wb-left">
 					{() => (
 						<nav class="wb-activity" aria-label="Views">
-							{(['files', 'docs'] as const).map((id) => (
+							{(['files', 'search', 'docs'] as const).map((id) => (
 								<button
 									type="button"
 									class="wb-activity-button"
 									data-active={String(sidebar() && view() === id)}
-									title={id === 'files' ? 'Files' : 'Documentation'}
-									ref={(element: Element) => element.append(createIcon(id === 'files' ? 'files' : 'book', 22))}
+									title={id === 'files' ? 'Files' : id === 'search' ? 'Search (Ctrl+Shift+F)' : 'Documentation'}
+									ref={(element: Element) => element.append(createIcon(id === 'files' ? 'files' : id === 'search' ? 'search' : 'book', 22))}
 									onClick={() => {
 										if (view() === id) sidebar.update((visible) => !visible)
 										else {
@@ -257,7 +363,18 @@ export function Workbench(props: {
 						</nav>
 					)}
 					{() =>
-						!sidebar() ? null : view() === 'docs' ? (
+						!sidebar() ? null : view() === 'search' ? (
+							<div class="wb-sidewrap">
+								<aside class="wb-side">
+									<SearchPanel
+										texts={() => collectScripts(props.session.project.assets, new Map([...open.values()].map((item) => [item.id, item.editor.value])))}
+										onOpen={(path: string, line: number, character: number) => void openAt(path, line, character)}
+										onReplace={(changes: ReadonlyMap<string, string>) => void applyTexts(changes)}
+									/>
+								</aside>
+								<div class="splitter splitter-col wb-handle" ref={(handle: Element) => props.split(handle, 'ideSide', 'x', 1, 180, () => 640)}></div>
+							</div>
+						) : view() === 'docs' ? (
 							<div class="wb-sidewrap">
 								<aside
 									class="wb-side script-docs"
