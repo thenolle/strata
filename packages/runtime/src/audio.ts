@@ -1,17 +1,17 @@
 import type { Guid, Logger, World } from '@strata/core'
 import { AudioSource } from '@strata/gameplay'
-import type { AssetLibrary } from '@strata/project'
+import type { GameAssets } from './assets.ts'
 
 /**
  * Plays the audio components of a world with the Web Audio API. Create it from a user gesture such as pressing Play.
  */
 export class AudioSystem {
-	readonly #assets: AssetLibrary
+	readonly #assets: GameAssets
 	readonly #logger: Logger
 	readonly #sources = new Set<AudioBufferSourceNode>()
 	#context: AudioContext | undefined
 
-	constructor(assets: AssetLibrary, logger: Logger) {
+	constructor(assets: GameAssets, logger: Logger) {
 		this.#assets = assets
 		this.#logger = logger
 	}

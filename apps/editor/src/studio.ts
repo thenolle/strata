@@ -2,6 +2,7 @@ import { CommandRegistry, ContextKeys, KeybindingService } from '@strata/command
 import { DisposableStore, type Disposable, type Entity, type Guid } from '@strata/core'
 import type { EditorSession } from '@strata/editor-core'
 import { MenuRegistry } from '@strata/menus'
+import SCRIPT_TEMPLATE from './ide/script-template.txt'
 
 export interface StudioHooks {
 	readonly save: () => Promise<void>
@@ -9,6 +10,7 @@ export interface StudioHooks {
 	readonly openPalette: () => void
 	readonly openContextMenu: () => void
 	readonly play: () => void
+	readonly openScript: (asset: Guid) => void
 }
 
 export interface Studio extends Disposable {
@@ -147,6 +149,21 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 	command('edit.undo', 'Undo', 'Edit', () => void session.undo(), 'canUndo')
 	command('edit.redo', 'Redo', 'Edit', () => void session.redo(), 'canRedo')
 
+	command('script.new', 'New Script', 'Script', async () => {
+		let name = 'NewScript.ts'
+		for (let index = 2; session.project.assets.find(name) !== undefined; index++) name = `NewScript${index}.ts`
+		const result = await session.project.assets.importAsset(name, new TextEncoder().encode(SCRIPT_TEMPLATE))
+		if (!result.ok) throw new Error(result.error.message)
+		session.notifyAssetsChanged()
+		hooks.openScript(result.value.id)
+	})
+	command('script.edit', 'Edit Script', 'Script', (args) => {
+		const id = assetArg(args)
+		const record = id === undefined ? undefined : session.project.assets.get(id as Guid)
+		if (record?.kind !== 'script') throw new Error('Choose a script in the Assets panel first')
+		hooks.openScript(record.id)
+	})
+
 	const added = keybindings.addAll([
 		{ keys: 'ctrl+shift+p', command: 'workbench.action.showCommands' },
 		{ keys: 'f1', command: 'workbench.action.showCommands' },
@@ -204,8 +221,9 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 	contribute('viewport/context', { command: 'entity.addCamera', group: '1_create@5' })
 	contribute('viewport/context', { command: 'play.start', group: '5_play' })
 
-	contribute('assets/context', { command: 'asset.addToScene', group: '1_create' })
-	contribute('assets/context', { command: 'asset.assignToSelection', group: '2_modify' })
+	contribute('assets/context', { command: 'asset.addToScene', group: '1_create', when: "assetKind == 'image'" })
+	contribute('assets/context', { command: 'asset.assignToSelection', group: '2_modify', when: "assetKind == 'image'" })
+	contribute('assets/context', { command: 'script.edit', group: '3_script', when: "assetKind == 'script'" })
 
 	for (const menu of ['outline/context', 'viewport/context']) {
 		contribute(menu, { command: 'edit.copy', group: '2_edit@1' })

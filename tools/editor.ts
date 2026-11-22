@@ -29,6 +29,19 @@ const POLICY = [
 	"frame-ancestors 'none'"
 ].join('; ')
 
+const FRAME_POLICY = [
+	"default-src 'none'",
+	"script-src 'self' blob:",
+	"style-src 'unsafe-inline'",
+	'img-src blob: data:',
+	'media-src blob:',
+	"connect-src 'none'",
+	"base-uri 'none'",
+	"form-action 'none'",
+	"frame-ancestors 'self'"
+].join('; ')
+const FRAME_HTML = '<!doctype html><meta charset="utf-8"><title>Strata play</title><style>html,body{margin:0;height:100%;background:#0f1114}canvas{display:block;width:100%;height:100%;outline:none}</style><canvas id="game" tabindex="0"></canvas><script src="/assets/player.js"></script>'
+
 async function build(): Promise<boolean> {
 	const result = await Bun.build({
 		entrypoints: [join(editor, 'src/client.tsx')],
@@ -44,6 +57,20 @@ async function build(): Promise<boolean> {
 		for (const log of result.logs) console.error(log)
 		return false
 	}
+	const player = await Bun.build({
+		entrypoints: [join(editor, 'src/player.ts')],
+		target: 'browser',
+		format: 'iife',
+		outdir: assets,
+		naming: { entry: 'player.js' },
+		sourcemap: 'external',
+		minify: false,
+		define: { 'process.env.NODE_ENV': '"development"' }
+	})
+	if (!player.success) {
+		for (const log of player.logs) console.error(log)
+		return false
+	}
 	await mkdir(assets, { recursive: true })
 	await copyFile(fileURLToPath(import.meta.resolve('@gambrel/components/styles.css')), join(assets, 'components.css'))
 	await copyFile(join(editor, 'public/editor.css'), join(assets, 'editor.css'))
@@ -57,7 +84,7 @@ const app = createApp({ development: true })
 		if (ctx.url.pathname === '/assets/client.js' && !(await build())) return text('Build failed; see the terminal', { status: 500 })
 		const response = await next()
 		const headers = new Headers(response.headers)
-		if (policyEnabled) headers.set('content-security-policy', POLICY)
+		if (policyEnabled && !headers.has('content-security-policy')) headers.set('content-security-policy', POLICY)
 		headers.set('x-content-type-options', 'nosniff')
 		headers.set('referrer-policy', 'no-referrer')
 		return new Response(response.body, { status: response.status, statusText: response.statusText, headers })
@@ -72,6 +99,7 @@ const app = createApp({ development: true })
 		if (ctx.request.headers.get('origin') !== ctx.url.origin) return reply({ ok: false, output: 'Cross-origin requests are refused' }, 403)
 		return reply(await checkScript(await ctx.request.text()))
 	})
+	.get('/play/frame.html', () => html(FRAME_HTML, { headers: { 'cache-control': 'no-store', 'content-security-policy': FRAME_POLICY } }))
 	.get('/', async () => html(`<!doctype html>${await renderToString(Shell())}`, { headers: { 'cache-control': 'no-store' } }))
 
 const server = serve(app, { port, hostname: 'localhost', development: true })
