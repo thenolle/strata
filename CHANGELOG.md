@@ -33,4 +33,3 @@
 - Editor: Make player and Make solid presets, audio component with an asset picker, checkbox fields.
 - Runtime: audio playback, camera follow with smoothing, player and body counts in the Play bar; Play now moves focus out of text fields.
 - Scripting package: TypeScript script API and host. Project: script assets with editing. Editor server: compile and type-check endpoints.
-- Scripting package: TypeScript script API and host. Project: script assets with editing. Editor server: compile and type-check endpoints.
