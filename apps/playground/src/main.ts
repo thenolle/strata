@@ -27,6 +27,7 @@ function describeAsset(record: AssetRecord): string {
 		case 'image': return `  ${record.name} (${record.kind}, ${record.image.width}x${record.image.height})`
 		case 'audio': return `  ${record.name} (${record.kind}, ${record.audio.durationSeconds.toFixed(2)}s ${record.audio.sampleRate}Hz)`
 		case 'script': return `  ${record.name} (${record.kind}, ${record.script.lines} lines)`
+		default: throw new Error(`Unknown asset kind: ${String(record.kind)}`)
 	}
 }
 

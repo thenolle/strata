@@ -100,6 +100,31 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 		throw new Error(message)
 	}
 
+	const isFile = "assetKind != 'folder' && assetKind != ''"
+	const isFolder = "assetKind == 'folder' || assetKind == ''"
+
+	const sceneArg = (args: unknown): string | undefined => {
+		if (typeof args !== 'object' || args === null) return undefined
+		const name = (args as { readonly name?: unknown }).name
+		return typeof name === 'string' ? name : undefined
+	}
+	const leaveScene = async (): Promise<boolean> => {
+		if (!session.dirty) return true
+		if (confirm(`Save changes to "${session.scene}" before leaving it?`)) {
+			await hooks.save()
+			return !session.dirty
+		}
+		return confirm('Discard the unsaved changes?')
+	}
+	const instantiatePrefab = async (args: unknown): Promise<void> => {
+		const record = assetOf(args)
+		if (record.kind !== 'prefab') return fail('Choose a prefab in the Explorer first')
+		const bytes = await session.project.assets.read(record.id)
+		if (!bytes.ok) return fail(bytes.error.message)
+		const point = worldPoint(args)
+		if (session.paste(new TextDecoder().decode(bytes.value), { ...(point === undefined ? {} : { at: point }), label: false }) === undefined) fail('The prefab is damaged')
+	}
+
 	// Commands
 
 	const command = (id: string, title: string, category: string, run: (args?: unknown) => void | Promise<void>, when?: string): void => { store.add(commands.register({ id, title, category, ...(when === undefined ? {} : { when }), run })) }
@@ -115,7 +140,8 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 	command('view.mode2d', 'Switch to 2D View', 'View', () => contexts.set('viewMode', '2d'))
 	command('view.mode3d', 'Switch to 3D View', 'View', () => contexts.set('viewMode', '3d'))
 
-	command('asset.addToScene', 'Add Asset to Scene', 'Asset', (args) => {
+	command('asset.addToScene', 'Add Asset to Scene', 'Asset', async (args) => {
+		if (session.project.assets.get(assetArg(args) as Guid)?.kind === 'prefab') return instantiatePrefab(args)
 		const asset = imageAsset(args)
 		session.createEntity({ name: asset.name.replace(/\.[^.]+$/, ''), asset: asset.id, ...(worldPoint(args) ?? {}) })
 	})
@@ -181,6 +207,19 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 		const entity = session.selection
 		if (entity !== undefined) session.addComponents(entity, { body: { kind: 'static' }, collider: colliderSize(entity) })
 	}, 'hasSelection')
+	command('entity.saveAsPrefab', 'Save Selected as Prefab', 'Entity', async () => {
+		const entity = session.selection
+		if (entity === undefined) return
+		const text = session.prefabText(entity)
+		if (text === undefined) return fail('This entity cannot be saved as a prefab')
+		const name = prompt('Prefab name', session.nameOf(entity))?.trim()
+		if (name === undefined || name === '') return
+		await session.project.assets.createFolder('Prefabs')
+		const result = await session.project.assets.importAsset(`${name}.prefab`, new TextEncoder().encode(text), 'Prefabs')
+		if (!result.ok) return fail(result.error.message)
+		hooks.revealFolder('Prefabs')
+		session.notifyAssetsChanged()
+	}, 'hasSelection')
 
 	command('tool.move', 'Move Tool', 'Tools', () => contexts.set('tool', 'move'))
 	command('tool.rotate', 'Rotate Tool', 'Tools', () => contexts.set('tool', 'rotate'))
@@ -245,6 +284,40 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 		session.notifyAssetsChanged()
 	})
 
+	command('prefab.instantiate', 'Instantiate Prefab', 'Asset', instantiatePrefab)
+
+	command('scene.switch', 'Switch Scene', 'Scene', async (args) => {
+		const names = await session.scenes()
+		const name = sceneArg(args) ?? prompt(`Switch to which scene?\n${names.join(', ')}`)?.trim()
+		if (name === undefined || name === '' || name === session.scene) return
+		if (!(await leaveScene())) return
+		const result = await session.switchScene(name)
+		if (!result.ok) return fail(result.error.message)
+	})
+	command('scene.new', 'New Scene', 'Scene', async () => {
+		const name = prompt('New scene name')?.trim()
+		if (name === undefined || name === '') return
+		const created = await session.newScene(name)
+		if (!created.ok) return fail(created.error.message)
+		if (!(await leaveScene())) return
+		const result = await session.switchScene(name)
+		if (!result.ok) return fail(result.error.message)
+	})
+	command('scene.rename', 'Rename Scene', 'Scene', async () => {
+		const name = prompt('New scene name', session.scene)?.trim()
+		if (name === undefined || name === '' || name === session.scene) return
+		const result = await session.renameScene(session.scene, name)
+		if (!result.ok) return fail(result.error.message)
+	})
+	command('scene.delete', 'Delete Scene', 'Scene', async (args) => {
+		const names = await session.scenes()
+		const name = sceneArg(args) ?? prompt(`Delete which scene?\n${names.join(', ')}`)?.trim()
+		if (name === undefined || name === '') return
+		if (!confirm(`Delete the scene "${name}"? This cannot be undone.`)) return
+		const result = await session.deleteScene(name)
+		if (!result.ok) return fail(result.error.message)
+	})
+
 	const added = keybindings.addAll([
 		{ keys: 'ctrl+shift+p', command: 'workbench.action.showCommands' },
 		{ keys: 'f1', command: 'workbench.action.showCommands' },
@@ -272,8 +345,6 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 
 	// Contibutions
 
-	const isFile = "assetKind != 'folder' && assetKind != ''"
-	const isFolder = "assetKind == 'folder' || assetKind == ''"
 	const contribute = (menu: string, item: Parameters<MenuRegistry['add']>[1]): void => { store.add(menus.add(menu, item)) }
 
 	contribute('entity/create', { command: 'entity.add', title: 'Entity', group: '1_create@1' })
@@ -306,9 +377,17 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 	contribute('viewport/context', { command: 'entity.addCamera', group: '1_create@5' })
 	contribute('viewport/context', { command: 'play.start', group: '5_play' })
 
+	for (const menu of ['outline/context', 'viewport/context']) contribute(menu, { command: 'entity.saveAsPrefab', group: '2_modify@5', when: 'hasSelection' })
+	for (const menu of ['outline/context', 'viewport/context']) {
+		contribute(menu, { command: 'edit.copy', group: '2_edit@1' })
+		contribute(menu, { command: 'edit.cut', group: '2_edit@2' })
+		contribute(menu, { command: 'edit.paste', group: '2_edit@3' })
+	}
+
 	contribute('assets/context', { command: 'asset.addToScene', group: '1_create', when: "assetKind == 'image'" })
 	contribute('assets/context', { command: 'asset.assignToSelection', group: '2_modify', when: "assetKind == 'image'" })
 	contribute('assets/context', { command: 'script.edit', group: '3_script', when: "assetKind == 'script'" })
+	contribute('assets/context', { command: 'prefab.instantiate', title: 'Instantiate in Scene', group: '1_create', when: "assetKind == 'prefab'" })
 
 	contribute('explorer/context', { command: 'script.new', title: 'New Script', group: '1_new@1', when: isFolder })
 	contribute('explorer/context', { command: 'folder.new', title: 'New Folder', group: '1_new@2', when: isFolder })
@@ -319,12 +398,7 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 	contribute('explorer/context', { command: 'folder.rename', group: '3_modify@2', when: "assetKind == 'folder'" })
 	contribute('explorer/context', { command: 'asset.delete', group: '3_modify@3', when: isFile })
 	contribute('explorer/context', { command: 'folder.delete', group: '3_modify@4', when: "assetKind == 'folder'" })
-
-	for (const menu of ['outline/context', 'viewport/context']) {
-		contribute(menu, { command: 'edit.copy', group: '2_edit@1' })
-		contribute(menu, { command: 'edit.cut', group: '2_edit@2' })
-		contribute(menu, { command: 'edit.paste', group: '2_edit@3' })
-	}
+	contribute('explorer/context', { command: 'prefab.instantiate', title: 'Instantiate in Scene', group: '2_open@2', when: "assetKind == 'prefab'" })
 
 	return { contexts, commands, keybindings, menus, dispose: () => store.dispose() }
 }

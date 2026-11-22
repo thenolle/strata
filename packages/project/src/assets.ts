@@ -10,6 +10,8 @@ export const ASSETS_KIND = 'strata.assets'
 export const ASSETS_FORMAT_VERSION = 1
 export const MAX_ASSET_BYTES = 256 * 1024 * 1024
 export const MAX_SCRIPT_BYTES = 256 * 1024
+export const PREFAB_FORMAT = 'strata.prefab'
+export const MAX_PREFAB_BYTES = 8 * 1024 * 1024
 
 const MAX_FOLDER_DEPTH = 8
 const INDEX_PATH = 'assets/index.json'
@@ -46,10 +48,23 @@ export interface ScriptAsset extends AssetBase {
 	readonly script: ScriptMeta
 }
 
-export type AssetRecord = ImageAsset | AudioAsset | ScriptAsset
+export interface PrefabMeta {
+	readonly entities: number
+}
+
+export interface PrefabAsset extends AssetBase {
+	readonly kind: 'prefab'
+	readonly prefab: PrefabMeta
+}
+
+export type AssetRecord = ImageAsset | AudioAsset | ScriptAsset | PrefabAsset
 export type AssetKind = AssetRecord['kind']
 
-type Inspection = { readonly kind: 'image'; readonly image: ImageMeta } | { readonly kind: 'audio'; readonly audio: AudioMeta } | { readonly kind: 'script'; readonly script: ScriptMeta }
+type Inspection =
+	| { readonly kind: 'image'; readonly image: ImageMeta }
+	| { readonly kind: 'audio'; readonly audio: AudioMeta }
+	| { readonly kind: 'script'; readonly script: ScriptMeta }
+	| { readonly kind: 'prefab'; readonly prefab: PrefabMeta }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -64,15 +79,24 @@ function cleanName(raw: string): string | undefined {
 	return name.length >= 1 && name.length <= 128 && !/[\x00-\x1f/\\]/.test(name) ? name : undefined
 }
 
+function inspectPrefab(bytes: Uint8Array): Result<PrefabMeta> {
+	if (bytes.length > MAX_PREFAB_BYTES) return err(new StrataError('invalid-argument', 'Prefabs are at most 8 MB'))
+	try {
+		const data = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) as { readonly format?: unknown; readonly root?: unknown; readonly entities?: unknown } | null
+		if (data?.format !== PREFAB_FORMAT || typeof data.root !== 'string' || !Array.isArray(data.entities) || data.entities.length === 0 || data.entities.length > 5000) {
+			return err(new StrataError('invalid-format', 'This file is not a Strata prefab'))
+		}
+		return ok({ entities: data.entities.length })
+	} catch {
+		return err(new StrataError('invalid-format', 'This file is not a Strata prefab'))
+	}
+}
+
 /**
  * Normalizes a folder path. The empty string is the project root. Returns undefined for invalid paths.
  */
 function cleanFolder(raw: string): string | undefined {
-	const parts = raw
-		.replaceAll('\\', '/')
-		.split('/')
-		.map((part) => part.trim())
-		.filter((part) => part !== '')
+	const parts = raw.replaceAll('\\', '/').split('/').map((part) => part.trim()).filter((part) => part !== '')
 	if (parts.length > MAX_FOLDER_DEPTH) return undefined
 	for (const part of parts) {
 		if (part === '.' || part === '..' || part.length > 64 || /[\x00-\x1f]/.test(part)) return undefined
@@ -110,6 +134,10 @@ function inspectScript(bytes: Uint8Array): Result<ScriptMeta> {
 }
 
 function inspectAsset(bytes: Uint8Array, name: string): Result<Inspection> {
+	if (name.toLowerCase().endsWith('.prefab')) {
+		const meta = inspectPrefab(bytes)
+		return meta.ok ? ok({ kind: 'prefab', prefab: meta.value }) : meta
+	}
 	if (name.toLowerCase().endsWith('.ts')) {
 		const meta = inspectScript(bytes)
 		return meta.ok ? ok({ kind: 'script', script: meta.value }) : meta
@@ -168,6 +196,11 @@ function parseRecord(raw: unknown): AssetRecord | undefined {
 		const meta = raw['script']
 		if (!isRecord(meta) || meta['language'] !== 'typescript' || !isPositiveInteger(meta['lines'])) return undefined
 		return { id, name, folder, hash, size, kind: 'script', script: { language: 'typescript', lines: meta['lines'] } }
+	}
+	if (raw['kind'] === 'prefab') {
+		const meta = raw['prefab']
+		if (!isRecord(meta) || !isPositiveInteger(meta['entities'])) return undefined
+		return { id, name, folder, hash, size, kind: 'prefab', prefab: { entities: meta['entities'] } }
 	}
 	return undefined
 }
@@ -272,7 +305,9 @@ export class AssetLibrary {
 					? { ...common, kind: 'image', image: inspected.value.image }
 					: inspected.value.kind === 'audio'
 						? { ...common, kind: 'audio', audio: inspected.value.audio }
-						: { ...common, kind: 'script', script: inspected.value.script }
+						: inspected.value.kind === 'prefab'
+							? { ...common, kind: 'prefab', prefab: inspected.value.prefab }
+							: { ...common, kind: 'script', script: inspected.value.script }
 			await this.#commit(new Map(this.#records).set(record.id, record))
 			return ok(record)
 		})
