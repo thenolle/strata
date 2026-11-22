@@ -24,3 +24,4 @@
 - Editor: context menu with submenus, type-ahead, touch long-press and keyboard opening, wired to the hierarchy.
 - Editor: viewport context menu with picking, entity creation at the pointer and a grid toggle; panning moved to middle drag.
 - Editor: sprite component, assets panel with import and drag into the viewport, textured drawing and an image picker in the inspector.
+- Scene: register the sprite component so sprites are saved, loaded and restored by undo.
