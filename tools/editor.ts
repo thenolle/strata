@@ -5,6 +5,7 @@ import { serve, staticFiles } from '@gambrel/bun'
 import { createApp, html, text } from '@gambrel/core'
 import { renderToString } from '@gambrel/view'
 import { Shell } from '../apps/editor/src/shell.tsx'
+import { checkScript, compileScript } from './scripts.ts'
 
 const root = resolve(import.meta.dir, '..')
 const editor = join(root, 'apps/editor')
@@ -12,6 +13,10 @@ const assets = join(root, '.cache/editor')
 const port = Number(Bun.env['PORT'] ?? 3220)
 if (!Number.isInteger(port) || port < 0 || port > 65535) throw new RangeError('PORT must be an integer between 0 and 65535')
 const policyEnabled = Bun.env['STRATA_CSP'] !== 'off'
+
+function reply(body: unknown, status = 200): Response {
+	return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } })
+}
 
 const POLICY = [
 	"default-src 'self'",
@@ -58,6 +63,15 @@ const app = createApp({ development: true })
 		return new Response(response.body, { status: response.status, statusText: response.statusText, headers })
 	})
 	.use(staticFiles({ directory: assets, prefix: '/assets' }))
+	.post('/api/compile', async (ctx) => {
+		if (ctx.request.headers.get('origin') !== ctx.url.origin) return reply({ ok: false, error: 'Cross-origin requests are refused' }, 403)
+		const result = compileScript(await ctx.request.text())
+		return reply(result, result.ok ? 200 : 400)
+	})
+	.post('/api/check', async (ctx) => {
+		if (ctx.request.headers.get('origin') !== ctx.url.origin) return reply({ ok: false, output: 'Cross-origin requests are refused' }, 403)
+		return reply(await checkScript(await ctx.request.text()))
+	})
 	.get('/', async () => html(`<!doctype html>${await renderToString(Shell())}`, { headers: { 'cache-control': 'no-store' } }))
 
 const server = serve(app, { port, hostname: 'localhost', development: true })

@@ -1,16 +1,4 @@
-import {
-	MigrationChain,
-	StrataError,
-	createEnvelope,
-	createGuid,
-	err,
-	isGuid,
-	ok,
-	parseEnvelope,
-	stringifyEnvelope,
-	type Guid,
-	type Result
-} from '@strata/core'
+import { MigrationChain, StrataError, createEnvelope, createGuid, err, isGuid, ok, parseEnvelope, stringifyEnvelope, type Guid, type Result } from '@strata/core'
 import { sha256Hex } from './bytes.ts'
 import { hasPngSignature, inspectPng } from './formats/png.ts'
 import type { AudioMeta, ImageMeta } from './formats/types.ts'
@@ -44,10 +32,22 @@ export interface AudioAsset extends AssetBase {
 	readonly audio: AudioMeta
 }
 
-export type AssetRecord = ImageAsset | AudioAsset
+export const MAX_SCRIPT_BYTES = 256 * 1024
+
+export interface ScriptMeta {
+	readonly language: 'typescript'
+	readonly lines: number
+}
+
+export interface ScriptAsset extends AssetBase {
+	readonly kind: 'script'
+	readonly script: ScriptMeta
+}
+
+export type AssetRecord = ImageAsset | AudioAsset | ScriptAsset
 export type AssetKind = AssetRecord['kind']
 
-type Inspection = { readonly kind: 'image'; readonly image: ImageMeta } | { readonly kind: 'audio'; readonly audio: AudioMeta }
+type Inspection = { readonly kind: 'image'; readonly image: ImageMeta } | { readonly kind: 'audio'; readonly audio: AudioMeta } | { readonly kind: 'script'; readonly script: ScriptMeta }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -72,7 +72,21 @@ function blobPath(hash: string): string {
 	return `${BLOB_DIR}/${hash}`
 }
 
-function inspectAsset(bytes: Uint8Array): Result<Inspection> {
+function inspectScript(bytes: Uint8Array): Result<ScriptMeta> {
+	if (bytes.length > MAX_SCRIPT_BYTES) return err(new StrataError('invalid-argument', 'Scripts are at most 256 KB'))
+	try {
+		const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+		return ok({ language: 'typescript', lines: text.split('\n').length })
+	} catch {
+		return err(new StrataError('invalid-format', 'Scripts must be UTF-8 text'))
+	}
+}
+
+function inspectAsset(bytes: Uint8Array, name: string): Result<Inspection> {
+	if (name.toLowerCase().endsWith('.ts')) {
+		const meta = inspectScript(bytes)
+		return meta.ok ? ok({ kind: 'script', script: meta.value }) : meta
+	}
 	if (hasPngSignature(bytes)) {
 		const meta = inspectPng(bytes)
 		return meta.ok ? ok({ kind: 'image', image: meta.value }) : meta
@@ -81,7 +95,7 @@ function inspectAsset(bytes: Uint8Array): Result<Inspection> {
 		const meta = inspectWav(bytes)
 		return meta.ok ? ok({ kind: 'audio', audio: meta.value }) : meta
 	}
-	return err(new StrataError('invalid-format', 'Unsupported file type; PNG and WAV can be imported'))
+	return err(new StrataError('invalid-format', 'Unsupported file type; PNG, WAV and TypeScript (.ts) files can be imported'))
 }
 
 function parseImageMeta(value: unknown): ImageMeta | undefined {
@@ -119,6 +133,11 @@ function parseRecord(raw: unknown): AssetRecord | undefined {
 	if (raw['kind'] === 'audio') {
 		const audio = parseAudioMeta(raw['audio'])
 		return audio === undefined ? undefined : { id, name, hash, size, kind: 'audio', audio }
+	}
+	if (raw['kind'] === 'script') {
+		const meta = raw['script']
+		if (!isRecord(meta) || meta['language'] !== 'typescript' || !isPositiveInteger(meta['lines'])) return undefined
+		return { id, name, hash, size, kind: 'script', script: { language: 'typescript', lines: meta['lines'] } }
 	}
 	return undefined
 }
@@ -191,15 +210,35 @@ export class AssetLibrary {
 			if (clean === undefined) return err(new StrataError('invalid-argument', 'Asset names must be 1 to 128 characters without slashes or control characters'))
 			if (bytes.length === 0 || bytes.length > MAX_ASSET_BYTES) return err(new StrataError('invalid-argument', `Asset size must be 1 byte to ${MAX_ASSET_BYTES} bytes`))
 			if (this.find(clean) !== undefined) return err(new StrataError('conflict', `An asset named "${clean}" already exists`))
-			const inspected = inspectAsset(bytes)
+			const inspected = inspectAsset(bytes, clean)
 			if (!inspected.ok) return inspected
 			const hash = await sha256Hex(bytes)
 			await this.#storage.write(blobPath(hash), bytes)
 			const common = { id: createGuid(), name: clean, hash, size: bytes.length }
-			const record: AssetRecord =
-				inspected.value.kind === 'image' ? { ...common, kind: 'image', image: inspected.value.image } : { ...common, kind: 'audio', audio: inspected.value.audio }
+			const record: AssetRecord = inspected.value.kind === 'image' ? { ...common, kind: 'image', image: inspected.value.image } : inspected.value.kind === 'audio' ? { ...common, kind: 'audio', audio: inspected.value.audio } : { ...common, kind: 'script', script: inspected.value.script }
 			await this.#commit(new Map(this.#records).set(record.id, record))
 			return ok(record)
+		})
+	}
+
+	/**
+	 * Replaces the text of a script. Other kinds of asset cannot be edited this way.
+	 */
+	replaceScript(id: Guid, bytes: Uint8Array): Promise<Result<AssetRecord>> {
+		return this.#enqueue(async () => {
+			const record = this.#records.get(id)
+			if (record === undefined) return err(new StrataError('not-found', 'No such asset'))
+			if (record.kind !== 'script') return err(new StrataError('invalid-argument', 'Only scripts can be edited'))
+			if (bytes.length === 0) return err(new StrataError('invalid-argument', 'A script cannot be empty'))
+			const meta = inspectScript(bytes)
+			if (!meta.ok) return meta
+			const hash = await sha256Hex(bytes)
+			await this.#storage.write(blobPath(hash), bytes)
+			const updated: ScriptAsset = { ...record, hash, size: bytes.length, script: meta.value }
+			const next = new Map(this.#records).set(id, updated)
+			await this.#commit(next)
+			if (hash !== record.hash && ![...next.values()].some((other) => other.hash === record.hash)) await this.#storage.delete(blobPath(record.hash))
+			return ok(updated)
 		})
 	}
 

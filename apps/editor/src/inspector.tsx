@@ -131,8 +131,8 @@ function ComponentSection(props: { readonly session: EditorSession; readonly ent
 				if (kind === 'bool') {
 					return <BoolField label={field} revision={revision} read={() => session.componentValue(entity, definition, field) === true} write={(value) => session.setField(entity, definition, field, value)} />
 				}
-				if (definition.name === 'audio' && field === 'asset') {
-					return <AssetField label={field} kind="audio" session={session} revision={revision} read={() => String(session.componentValue(entity, definition, field) ?? '')} write={(value) => session.setField(entity, definition, field, value)} />
+				if ((definition.name === 'audio' || definition.name === 'script') && field === 'asset') {
+					return <AssetField label={field} kind={definition.name === 'script' ? 'script' : 'audio'} session={session} revision={revision} read={() => String(session.componentValue(entity, definition, field) ?? '')} write={(value) => session.setField(entity, definition, field, value)} />
 				}
 				if (kind === 'entity') return null
 				if (kind === 'string') {
@@ -179,7 +179,7 @@ function BoolField(props: FieldProps & { readonly read: () => boolean; readonly 
 	)
 }
 
-function AssetField(props: FieldProps & { readonly session: EditorSession; readonly kind: 'image' | 'audio'; readonly read: () => string; readonly write: (value: string) => void }): Child {
+function AssetField(props: FieldProps & { readonly session: EditorSession; readonly kind: 'image' | 'audio' | 'script'; readonly read: () => string; readonly write: (value: string) => void }): Child {
 	return (
 		<label class="field">
 			<span>{props.label}</span>
