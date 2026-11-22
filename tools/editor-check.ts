@@ -2,6 +2,8 @@ import { applyTextEdits, offsetAt } from '../apps/editor/src/ide/editing.ts'
 import { fuzzyScore } from '../apps/editor/src/ide/fuzzy.ts'
 import { expandSnippet } from '../apps/editor/src/ide/snippets.ts'
 import { simulateScript } from '../packages/scripting/src/index.ts'
+import { EditorSession } from '../packages/editor-core/src/index.ts'
+import { MemoryStorage, Project } from '../packages/project/src/index.ts'
 import { bundleScripts } from './scripts.ts'
 
 console.log('fuzzy', fuzzyScore('sp', 'setPosition'), (fuzzyScore('sp', 'spawn') ?? 0) > (fuzzyScore('sp', 'setPosition') ?? 0), fuzzyScore('xyz', 'setPosition'))
@@ -29,3 +31,28 @@ for (const [label, source] of cases) {
 	const result = await bundleScripts({ entry: 'A.ts', files: source })
 	console.log(label, result.ok, result.ok ? '' : result.error)
 }
+
+const projectResult = await Project.create(new MemoryStorage(), 'Demo')
+if (!projectResult.ok) throw projectResult.error
+const project = projectResult.value
+const sessionResult = await EditorSession.open(project)
+if (!sessionResult.ok) throw sessionResult.error
+const session = sessionResult.value
+const a = session.createEntity({ name: 'A' })
+const b = session.createEntity({ name: 'B', x: 10 })
+const c = session.createEntity({ name: 'C', parent: b })
+session.select(a)
+session.select(b, 'add')
+console.log('multi', session.selected.length, session.selection === b, session.isSelected(a))
+session.select(a, 'toggle')
+console.log('toggle', session.selected.length, session.isSelected(a))
+session.selectAll()
+console.log('all', session.selected.length)
+session.setWorldPositions([{ entity: a, x: 5, y: 6 }, { entity: b, x: 20, y: 30 }])
+session.setWorldPositions([{ entity: a, x: 7, y: 8 }, { entity: b, x: 22, y: 32 }])
+console.log('group', session.getTransform(a)?.x, session.getTransform(b)?.y)
+session.undo()
+console.log('undo group', session.getTransform(a)?.x, session.getTransform(b)?.x)
+console.log('delete', session.deleteEntities([a, b, c]), session.rows().length)
+session.undo()
+console.log('restore', session.rows().length, session.selected.length)

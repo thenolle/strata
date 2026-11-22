@@ -42,6 +42,7 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 	const ideRequest = signal<{ readonly asset: Guid; readonly n: number } | undefined>(undefined)
 	const reveal = signal<string | undefined>(undefined)
 	let rootElement: HTMLElement | undefined
+	let anchor: Entity | undefined
 	const layout: Layout = loadLayout()
 	const toolbar = signal(0)
 	let viewportHost: HTMLElement | undefined
@@ -269,9 +270,20 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 									class="row"
 									data-menu="outline/context"
 									data-entity={String(row.entity)}
-									data-selected={String(session.selection === row.entity)}
+									data-selected={String(session.isSelected(row.entity))}
 									style={`padding-left:${8 + row.depth * 14}px`}
-									onClick={() => session.select(row.entity)}
+									onClick={(event) => {
+										const mouseEvent = event as unknown as MouseEvent
+										if (mouseEvent.shiftKey && anchor !== undefined) {
+											session.selectRange(anchor, row.entity)
+										} else if (mouseEvent.ctrlKey || mouseEvent.metaKey) {
+											session.select(row.entity, 'toggle')
+											anchor = row.entity
+										} else {
+											session.select(row.entity)
+											anchor = row.entity
+										}
+									}}
 								>
 									{row.name === '' ? '(unnamed)' : row.name}
 								</li>

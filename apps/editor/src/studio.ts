@@ -55,6 +55,7 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 	contexts.set('gridVisible', true)
 	const syncContext = (): void => {
 		contexts.set('hasSelection', session.selection !== undefined)
+		contexts.set('multiSelection', session.selected.length > 1)
 		contexts.set('isDirty', session.dirty)
 		contexts.set('canUndo', session.canUndo)
 		contexts.set('canRedo', session.canRedo)
@@ -167,10 +168,11 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 		input?.select()
 	}, 'hasSelection')
 	command('entity.delete', 'Delete Selected Entity', 'Entity', () => void session.deleteSelected(), 'hasSelection')
-	command('entity.duplicate', 'Duplicate Selected Entity', 'Entity', () => {
-		const selected = session.selection
-		if (selected !== undefined) session.duplicate(selected)
+	command('entity.duplicate', 'Duplicate Selected Entities', 'Entity', () => {
+		const copies = session.selected.map((entity) => session.duplicate(entity)).filter((copy): copy is Entity => copy !== undefined)
+		session.selectMany(copies)
 	}, 'hasSelection')
+	command('edit.selectAll', 'Select All', 'Edit', () => session.selectAll())
 	command('entity.makePlayer', 'Make Selected a Player', 'Entity', () => {
 		const entity = session.selection
 		if (entity !== undefined) session.addComponents(entity, { body: { kind: 'dynamic' }, collider: colliderSize(entity), controller: {} })
@@ -264,6 +266,7 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 		{ keys: 'mod+x', command: 'edit.cut', when: 'hasSelection && !textInputFocus' },
 		{ keys: 'mod+v', command: 'edit.paste', when: 'hasClipboard && !textInputFocus' },
 		{ keys: 't', command: 'tool.rect', when: '!textInputFocus' },
+		{ keys: 'mod+a', command: 'edit.selectAll', when: '!textInputFocus' },
 	])
 	if (!added.ok) throw added.error
 

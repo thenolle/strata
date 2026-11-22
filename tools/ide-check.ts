@@ -67,6 +67,11 @@ try {
 	console.log('actions', fixes.length > 0)
 	await ide.close('lib')
 	await ide.close('act')
+	await ide.sync('act2', 'export const four = double(2)\n', 'Act2.ts')
+	const unknown = await ide.diagnostics('act2')
+	const imports = await ide.actions('act2', { line: 0, character: 20, endLine: 0, endCharacter: 26 }, unknown)
+	console.log('import-fix', imports.some((action) => action.title === "Import 'double' from './lib/math'"))
+	await ide.close('act2')
 } finally {
 	ide.dispose()
 }

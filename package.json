@@ -11,6 +11,7 @@
     "check": "bun run typecheck && bun run audit",
     "playground": "bun tools/playground.ts",
     "editor": "bun tools/editor.ts",
+    "editor:check": "bun tools/editor-check.ts",
     "merge": "bun tools/merge-pr.ts",
     "ide:check": "bun tools/ide-check.ts",
     "hooks": "git config core.hooksPath .githooks",

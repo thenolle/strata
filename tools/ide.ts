@@ -1,5 +1,5 @@
 import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { basename, dirname, join, relative } from 'node:path'
+import { basename, dirname, join, posix, relative } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { LspClient, type RawDiagnostic } from './lsp.ts'
 import { cleanScriptPath, MAX_SCRIPT_BYTES } from './scripts.ts'
@@ -557,22 +557,26 @@ export class Ide {
 		const client = await this.#ensure()
 		const file = this.#fileOf(name)
 		if (!this.#versions.has(file)) return []
-		const list = await client.request('textDocument/codeAction', {
-			textDocument: { uri: this.#uri(file) },
-			range: { start: { line: range.line, character: range.character }, end: { line: range.endLine, character: range.endCharacter } },
-			context: {
-				diagnostics: diagnostics.map((item) => ({
-					range: { start: { line: item.line, character: item.character }, end: { line: item.endLine, character: item.endCharacter } },
-					message: item.message,
-					severity: item.severity,
-					source: 'ts',
-					...(item.code === undefined ? {} : { code: item.code })
-				}))
-			}
-		})
-		if (!Array.isArray(list)) return []
+		let list: unknown = []
+		try {
+			list = await client.request('textDocument/codeAction', {
+				textDocument: { uri: this.#uri(file) },
+				range: { start: { line: range.line, character: range.character }, end: { line: range.endLine, character: range.endCharacter } },
+				context: {
+					diagnostics: diagnostics.map((item) => ({
+						range: { start: { line: item.line, character: item.character }, end: { line: item.endLine, character: item.endCharacter } },
+						message: item.message,
+						severity: item.severity,
+						source: 'ts',
+						...(item.code === undefined ? {} : { code: item.code })
+					}))
+				}
+			})
+		} catch {
+			// This server version has no code actions: the built-in fixes below still apply.
+		}
 		const out: ActionOut[] = []
-		for (const raw of (list as readonly CodeActionRaw[]).slice(0, 20)) {
+		for (const raw of (Array.isArray(list) ? (list as readonly CodeActionRaw[]) : []).slice(0, 20)) {
 			let action = raw
 			if (action.edit === undefined && action.data !== undefined) {
 				try {
@@ -585,6 +589,46 @@ export class Ide {
 			const split = this.#splitEdit(action.edit, file)
 			if (split !== undefined) out.push({ title: action.title, edits: split.own, others: split.others, preferred: action.isPreferred === true })
 		}
+		for (const fix of this.#fallbackFixes(file, diagnostics)) if (!out.some((action) => action.title === fix.title)) out.push(fix)
 		return out.sort((a, b) => Number(b.preferred) - Number(a.preferred)).slice(0, 12)
+	}
+
+	/** Fixes the editor can make without the server: spelling suggestions and imports from other scripts. */
+	#fallbackFixes(file: string, diagnostics: readonly DiagnosticOut[]): ActionOut[] {
+		const out: ActionOut[] = []
+		const text = this.#texts.get(file) ?? ''
+		for (const item of diagnostics) {
+			const spelling = /Did you mean '([^']+)'\?/.exec(item.message)?.[1]
+			if (spelling !== undefined) {
+				out.push({ title: `Change spelling to '${spelling}'`, preferred: true, others: [], edits: [{ line: item.line, character: item.character, endLine: item.endLine, endCharacter: item.endCharacter, newText: spelling }] })
+			}
+			const missing = /^Cannot find name '([A-Za-z_$][\w$]*)'/.exec(item.message)?.[1]
+			if (missing !== undefined) out.push(...this.#importFixes(file, text, missing))
+		}
+		return out
+	}
+
+	#importFixes(file: string, text: string, name: string): ActionOut[] {
+		const pattern = new RegExp(`^export\\s+(?:declare\\s+)?(const|let|var|function|class|enum|interface|type)\\s+${name.replaceAll('$', '\\$')}\\b`, 'm')
+		let at = 0
+		text.split('\n').forEach((line, index) => {
+			if (/^import\b/.test(line)) at = index + 1
+		})
+		const out: ActionOut[] = []
+		for (const [other, source] of this.#texts) {
+			if (other === file || !other.startsWith('project/')) continue
+			const match = pattern.exec(source)
+			if (match === null) continue
+			let specifier = posix.relative(posix.dirname(file), other).replace(/\.ts$/i, '')
+			if (!specifier.startsWith('.')) specifier = `./${specifier}`
+			const typeOnly = match[1] === 'interface' || match[1] === 'type'
+			out.push({
+				title: `Import '${name}' from '${specifier}'`,
+				preferred: out.length === 0,
+				others: [],
+				edits: [{ line: at, character: 0, endLine: at, endCharacter: 0, newText: `import ${typeOnly ? 'type ' : ''}{ ${name} } from '${specifier}'\n` }]
+			})
+		}
+		return out.slice(0, 5)
 	}
 }
