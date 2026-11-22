@@ -6,6 +6,7 @@ import { Vec2, Vec3, radToDeg } from '@strata/math'
 import { Collider } from '@strata/physics'
 import { Camera2D, SpriteBatch, createRenderer, decodeImage, fitCanvasToDisplay, packColor, type Renderer, type Texture } from '@strata/renderer'
 import { attachLongPress } from './long-press.ts'
+import { Parent } from '@strata/scene'
 
 export const ASSET_MIME = 'application/x-strata-asset'
 
@@ -17,14 +18,7 @@ const STATUS_INTERVAL_MS = 250
 const GIZMO_LENGTH = 90
 const GIZMO_HANDLE = 7
 const RING_SEGMENTS = 48
-const ENTITY_COLORS = [
-	packColor(0.36, 0.62, 0.95),
-	packColor(0.45, 0.8, 0.55),
-	packColor(0.95, 0.62, 0.3),
-	packColor(0.8, 0.5, 0.9),
-	packColor(0.95, 0.45, 0.5),
-	packColor(0.4, 0.8, 0.85)
-]
+const ENTITY_COLORS = [packColor(0.36, 0.62, 0.95), packColor(0.45, 0.8, 0.55), packColor(0.95, 0.62, 0.3), packColor(0.8, 0.5, 0.9), packColor(0.95, 0.45, 0.5), packColor(0.4, 0.8, 0.85)]
 const GRID_COLOR = packColor(1, 1, 1, 0.07)
 const X_AXIS_COLOR = packColor(0.9, 0.3, 0.3, 0.8)
 const Y_AXIS_COLOR = packColor(0.3, 0.8, 0.4, 0.8)
@@ -33,9 +27,8 @@ const GIZMO_X = packColor(0.95, 0.3, 0.3, 1)
 const GIZMO_Y = packColor(0.3, 0.85, 0.4, 1)
 const GIZMO_RING = packColor(1, 0.85, 0.3, 1)
 const MIN_SIZE = 4
-const RECT_HANDLES: readonly (readonly [number, number])[] = [
-	[-1, -1], [1, -1], [-1, 1], [1, 1], [0, -1], [0, 1], [-1, 0], [1, 0]
-]
+const RECT_HANDLES: readonly (readonly [number, number])[] = [[-1, -1], [1, -1], [-1, 1], [1, 1], [0, -1], [0, 1], [-1, 0], [1, 0]]
+const MARQUEE_FILL = packColor(1, 0.85, 0.3, 0.12)
 
 export type Tool = 'move' | 'rotate' | 'scale' | 'rect'
 type Handle = 'moveX' | 'moveY' | 'rotate' | 'scaleX' | 'scaleY' | 'rect'
@@ -67,9 +60,7 @@ export interface ViewportOptions {
 }
 
 interface Drag {
-	readonly entity: Entity
-	readonly dx: number
-	readonly dy: number
+	readonly members: readonly { readonly entity: Entity; readonly dx: number; readonly dy: number }[]
 }
 
 interface Gizmo {
@@ -144,6 +135,8 @@ export function startViewport(options: ViewportOptions): () => void {
 		const dropPoint = new Vec2()
 		const probe = new Vec3()
 		let drag: Drag | undefined
+		let marquee: { readonly x: number; readonly y: number } | undefined
+		let modifier = false
 		let gizmo: Gizmo | undefined
 		let lastRect: readonly [number, number] = [0, 0]
 		let lastX = 0
@@ -342,6 +335,25 @@ export function startViewport(options: ViewportOptions): () => void {
 			gizmoBatch.add(frame.x - sin * length, frame.y + cos * length, box, box, rotation, GIZMO_Y)
 		}
 
+		const onPointerDown = (event: PointerEvent): void => {
+			modifier = event.shiftKey || event.ctrlKey || event.metaKey
+		}
+		const startDrag = (): Drag | undefined => {
+			const chosen = new Set(session.selected)
+			const members: { readonly entity: Entity; readonly dx: number; readonly dy: number }[] = []
+			for (const entity of chosen) {
+				let parent = session.world.get(entity, Parent)?.parent
+				let nested = false
+				while (parent !== undefined && !nested) {
+					nested = chosen.has(parent)
+					parent = session.world.get(parent, Parent)?.parent
+				}
+				const matrix = nested ? undefined : session.transforms.worldMatrix(entity)
+				if (matrix !== undefined) members.push({ entity, dx: (matrix.elements[12] ?? 0) - cursor.x, dy: (matrix.elements[13] ?? 0) - cursor.y })
+			}
+			return members.length === 0 ? undefined : { members }
+		}
+
 		const openMenuAt = (clientX: number, clientY: number): void => {
 			drag = undefined
 			gizmo = undefined
@@ -368,11 +380,13 @@ export function startViewport(options: ViewportOptions): () => void {
 			options.onDropAsset({ asset, world: { x: dropPoint.x, y: dropPoint.y } })
 		}
 		canvas.addEventListener('contextmenu', onContextMenu)
+		canvas.addEventListener('pointerdown', onPointerDown, true)
 		canvas.addEventListener('dragover', onDragOver)
 		canvas.addEventListener('drop', onDrop)
 		const detachLongPress = attachLongPress(canvas, (_target, x, y) => openMenuAt(x, y))
 		detach = () => {
 			canvas.removeEventListener('contextmenu', onContextMenu)
+			canvas.removeEventListener('pointerdown', onPointerDown, true)
 			canvas.removeEventListener('dragover', onDragOver)
 			canvas.removeEventListener('drop', onDrop)
 			detachLongPress()
@@ -403,28 +417,52 @@ export function startViewport(options: ViewportOptions): () => void {
 					camera.screenToWorld(pointer.x, pointer.y, width, height, cursor)
 				}
 				if (buttons.wasPressed(0)) {
-					const selected = session.selection
-					const handle = selected === undefined ? undefined : hitHandle(selected)
-					if (selected !== undefined && handle !== undefined) {
-						session.select(selected)
-						gizmo = startGizmo(handle, selected)
+					const primary = session.selection
+					const handle = primary === undefined ? undefined : hitHandle(primary)
+					if (primary !== undefined && handle !== undefined) {
+						gizmo = startGizmo(handle, primary)
 						drag = undefined
+						marquee = undefined
 					} else {
 						gizmo = undefined
 						const hit = pick(cursor)
-						session.select(hit)
-						const matrix = hit === undefined ? undefined : session.transforms.worldMatrix(hit)
-						drag = hit === undefined || matrix === undefined ? undefined : { entity: hit, dx: (matrix.elements[12] ?? 0) - cursor.x, dy: (matrix.elements[13] ?? 0) - cursor.y }
+						if (hit === undefined) {
+							if (!modifier) session.select(undefined)
+							marquee = { x: cursor.x, y: cursor.y }
+							drag = undefined
+						} else {
+							marquee = undefined
+							if (modifier) session.select(hit, 'toggle')
+							else if (!session.isSelected(hit)) session.select(hit)
+							drag = session.isSelected(hit) ? startDrag() : undefined
+						}
 					}
 				}
 				if (buttons.isDown(0)) {
 					if (gizmo !== undefined) updateGizmo(gizmo)
-					else if (drag !== undefined) session.setWorldPosition(drag.entity, cursor.x + drag.dx, cursor.y + drag.dy)
+					else if (drag !== undefined) session.setWorldPositions(drag.members.map((member) => ({ entity: member.entity, x: cursor.x + member.dx, y: cursor.y + member.dy })))
 				}
 				lastX = pointer.x
 				lastY = pointer.y
 			}
 			if (buttons.wasReleased(0)) {
+				if (marquee !== undefined) {
+					const minX = Math.min(marquee.x, cursor.x)
+					const maxX = Math.max(marquee.x, cursor.x)
+					const minY = Math.min(marquee.y, cursor.y)
+					const maxY = Math.max(marquee.y, cursor.y)
+					if (maxX - minX > 3 / camera.zoom || maxY - minY > 3 / camera.zoom) {
+						const inside: Entity[] = []
+						for (const row of session.rows()) {
+							const m = session.transforms.worldMatrix(row.entity)?.elements
+							const x = m?.[12]
+							const y = m?.[13]
+							if (x !== undefined && y !== undefined && x >= minX && x <= maxX && y >= minY && y <= maxY) inside.push(row.entity)
+						}
+						session.selectMany(inside, modifier ? 'add' : 'replace')
+					}
+				}
+				marquee = undefined
 				drag = undefined
 				gizmo = undefined
 			}
@@ -461,7 +499,7 @@ export function startViewport(options: ViewportOptions): () => void {
 				const sizeX = Math.hypot(m[0] ?? 0, m[1] ?? 0) * extent.w
 				const sizeY = Math.hypot(m[4] ?? 0, m[5] ?? 0) * extent.h
 				const rotation = Math.atan2(m[1] ?? 0, m[0] ?? 0)
-				if (row.entity === session.selection) outlines.add(centerX, centerY, sizeX + 6 / camera.zoom, sizeY + 6 / camera.zoom, rotation, SELECTION_COLOR)
+				if (session.isSelected(row.entity)) outlines.add(centerX, centerY, sizeX + 6 / camera.zoom, sizeY + 6 / camera.zoom, rotation, SELECTION_COLOR)
 				const assetId = session.spriteOf(row.entity)
 				const texture = assetId === '' ? undefined : textureFor(assetId)
 				if (assetId !== '' && texture !== undefined) {
@@ -476,6 +514,20 @@ export function startViewport(options: ViewportOptions): () => void {
 				}
 			}
 			if (session.selection !== undefined) drawGizmo(session.selection)
+			if (marquee !== undefined && buttons.isDown(0)) {
+				const minX = Math.min(marquee.x, cursor.x)
+				const maxX = Math.max(marquee.x, cursor.x)
+				const minY = Math.min(marquee.y, cursor.y)
+				const maxY = Math.max(marquee.y, cursor.y)
+				const line = 1 / camera.zoom
+				const centerX = (minX + maxX) / 2
+				const centerY = (minY + maxY) / 2
+				gizmoBatch.add(centerX, centerY, maxX - minX, maxY - minY, 0, MARQUEE_FILL)
+				gizmoBatch.add(minX, centerY, line, maxY - minY, 0, GIZMO_RING)
+				gizmoBatch.add(maxX, centerY, line, maxY - minY, 0, GIZMO_RING)
+				gizmoBatch.add(centerX, minY, maxX - minX, line, 0, GIZMO_RING)
+				gizmoBatch.add(centerX, maxY, maxX - minX, line, 0, GIZMO_RING)
+			}
 			const spriteDraws = [...layers.values()].filter((layer) => layer.batch.count > 0).map((layer) => ({ texture: layer.texture, batch: layer.batch }))
 			active.render({
 				clearColor: [0.06, 0.07, 0.08, 1],

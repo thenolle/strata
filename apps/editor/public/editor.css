@@ -1567,3 +1567,9 @@ body {
 .search-hit:hover {
   background: #2a2f37;
 }
+
+.selection-count {
+  margin-left: 8px;
+  color: #ffd479;
+  font-size: 12px;
+}

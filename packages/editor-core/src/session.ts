@@ -5,6 +5,8 @@ import { Name, Parent, Transform, TransformSystem, loadScene, saveScene, Sprite,
 import { createGameRegistry } from '@strata/gameplay'
 import { History, type UndoableCommand } from './history.ts'
 
+type Snapshot = Extract<ReturnType<typeof snapshotEntities>, { readonly ok: true }>['value']
+
 export const MAIN_SCENE = 'main'
 const MAX_NAME_LENGTH = 128
 const DUPLICATE_OFFSET = 16
@@ -57,7 +59,8 @@ export class EditorSession implements Disposable {
 	readonly #scratch = new Vec3()
 	readonly #history = new History()
 	readonly #guids = new Map<Guid, Entity>()
-	#selection: Entity | undefined
+	#selected: Entity[] = []
+	#selectedSet = new Set<Entity>()
 	#rows: readonly EntityRow[] | undefined
 
 	private constructor(project: Project, logger: Logger) {
@@ -87,8 +90,52 @@ export class EditorSession implements Disposable {
 		return ok(session)
 	}
 
+	/** The primary selection: the entity chosen last. */
 	get selection(): Entity | undefined {
-		return this.#selection
+		return this.#selected.at(-1)
+	}
+
+	/** Every selected entity, the primary one last. */
+	get selected(): readonly Entity[] {
+		return this.#selected.filter((entity) => this.#isPersistent(entity))
+	}
+
+	isSelected(entity: Entity): boolean {
+		return this.#selectedSet.has(entity)
+	}
+
+	select(entity: Entity | undefined, mode: 'replace' | 'toggle' | 'add' = 'replace'): void {
+		this.#history.seal()
+		const next = entity !== undefined && this.#isPersistent(entity) ? entity : undefined
+		let result: Entity[]
+		if (next === undefined) result = mode === 'replace' ? [] : [...this.#selected]
+		else if (mode === 'replace') result = [next]
+		else if (mode === 'toggle') result = this.#selectedSet.has(next) ? this.#selected.filter((item) => item !== next) : [...this.#selected, next]
+		else result = [...this.#selected.filter((item) => item !== next), next]
+		this.#setSelected(result)
+	}
+
+	selectMany(entities: readonly Entity[], mode: 'replace' | 'add' = 'replace'): void {
+		this.#history.seal()
+		const fresh = entities.filter((entity) => this.#isPersistent(entity))
+		this.#setSelected(mode === 'replace' ? [...new Set(fresh)] : [...new Set([...this.#selected, ...fresh])])
+	}
+
+	/** Selects every entity between two outline rows, ending with `to` as the primary selection. */
+	selectRange(from: Entity, to: Entity): void {
+		const rows = this.rows()
+		const a = rows.findIndex((row) => row.entity === from)
+		const b = rows.findIndex((row) => row.entity === to)
+		if (a < 0 || b < 0) {
+			this.select(to)
+			return
+		}
+		const span = rows.slice(Math.min(a, b), Math.max(a, b) + 1).map((row) => row.entity)
+		this.selectMany(b < a ? span.reverse() : span)
+	}
+
+	selectAll(): void {
+		this.selectMany(this.rows().map((row) => row.entity))
 	}
 
 	get dirty(): boolean {
@@ -115,14 +162,6 @@ export class EditorSession implements Disposable {
 		this.transforms.update()
 	}
 
-	select(entity: Entity | undefined): void {
-		this.#history.seal()
-		const next = entity !== undefined && this.#isPersistent(entity) ? entity : undefined
-		if (next === this.#selection) return
-		this.#selection = next
-		this.#announce('selection')
-	}
-
 	createEntity(options: CreateEntityOptions = {}): Entity {
 		const data: SpawnData = {
 			guid: createGuid(),
@@ -139,7 +178,7 @@ export class EditorSession implements Disposable {
 			label: 'Add entity',
 			execute: () => {
 				this.#spawn(data)
-				if (select) this.#selection = this.#guids.get(data.guid)
+				if (select) this.#only(this.#guids.get(data.guid))
 			},
 			undo: () => {
 				const entity = this.#resolve(data.guid)
@@ -173,14 +212,114 @@ export class EditorSession implements Disposable {
 				const restored = restoreWorld(this.world, this.registry, snapshot)
 				if (!restored.ok) throw restored.error
 				for (const [guid, restoredEntity] of restored.value) this.#guids.set(guid, restoredEntity)
-				this.#selection = this.#guids.get(rootGuid)
+				this.#only(this.#guids.get(rootGuid))
 			}
 		})
 		return tree.length
 	}
 
 	deleteSelected(): number {
-		return this.#selection === undefined ? 0 : this.deleteEntity(this.#selection)
+		return this.deleteEntities(this.selected)
+	}
+
+	/**
+	 * Deletes several entities and their descendants as one undoable step. Undo brings back all of them with their ids.
+	 */
+	deleteEntities(entities: readonly Entity[]): number {
+		const chosen = new Set(entities.filter((entity) => this.#isPersistent(entity)))
+		const roots = [...chosen].filter((entity) => {
+			let parent = this.world.get(entity, Parent)?.parent
+			while (parent !== undefined) {
+				if (chosen.has(parent)) return false
+				parent = this.world.get(parent, Parent)?.parent
+			}
+			return true
+		})
+		if (roots.length === 0) return 0
+		if (roots.length === 1) return this.deleteEntity(roots[0] as Entity)
+		const items: { readonly guid: Guid; readonly snapshot: Snapshot }[] = []
+		let total = 0
+		for (const root of roots) {
+			const guid = this.#guidOf(root)
+			const tree = this.#subtree(root)
+			const captured = snapshotEntities(this.world, this.registry, tree)
+			if (guid === undefined || !captured.ok) return 0
+			items.push({ guid, snapshot: captured.value })
+			total += tree.length
+		}
+		this.#perform({
+			kind: 'structure',
+			label: 'Delete entities',
+			execute: () => {
+				for (const item of items) {
+					const target = this.#resolve(item.guid)
+					if (target !== undefined) this.#remove(target)
+				}
+			},
+			undo: () => {
+				for (const item of items) {
+					const restored = restoreWorld(this.world, this.registry, item.snapshot)
+					if (!restored.ok) throw restored.error
+					for (const [guid, entity] of restored.value) this.#guids.set(guid, entity)
+				}
+				this.#assign(items.flatMap((item) => this.#guids.get(item.guid) ?? []))
+			}
+		})
+		return total
+	}
+
+	/**
+	 * Edits the transforms of several entities as one undoable step. Dragging a group uses it, so one drag is one undo.
+	 */
+	setTransforms(patches: ReadonlyMap<Entity, Readonly<Partial<TransformData>>>): void {
+		const from: Record<string, Record<string, number>> = {}
+		const to: Record<string, Record<string, number>> = {}
+		for (const [entity, patch] of patches) {
+			const guid = this.#guidOf(entity)
+			const current = this.world.get(entity, Transform) as unknown as Record<string, number> | undefined
+			if (guid === undefined || current === undefined) continue
+			for (const [key, value] of Object.entries(patch)) {
+				const before = current[key]
+				if (typeof value !== 'number' || before === undefined || before === value) continue
+				const old = from[guid] ?? {}
+				const next = to[guid] ?? {}
+				old[key] = before
+				next[key] = value
+				from[guid] = old
+				to[guid] = next
+			}
+		}
+		const guids = Object.keys(to).sort()
+		if (guids.length === 0) return
+		const keys = [...new Set(guids.flatMap((guid) => Object.keys(to[guid] ?? {})))].sort()
+		this.#perform(
+			this.#valueCommand<Record<string, Record<string, number>>>('transform', `transforms:${guids.join(',')}:${keys.join(',')}`, 'Edit transforms', from, to, (values) => {
+				for (const [guid, patch] of Object.entries(values)) {
+					const target = this.#resolve(guid as Guid)
+					if (target !== undefined) this.transforms.setLocal(target, patch as Partial<TransformData>)
+				}
+			})
+		)
+	}
+
+	/**
+	 * Moves several entities so their origins sit at world positions, converting through each parent's transform.
+	 */
+	setWorldPositions(places: readonly { readonly entity: Entity; readonly x: number; readonly y: number }[]): void {
+		const patches = new Map<Entity, Partial<TransformData>>()
+		for (const place of places) {
+			const link = this.world.get(place.entity, Parent)
+			const parentMatrix = link === undefined ? undefined : this.transforms.worldMatrix(link.parent)
+			if (parentMatrix === undefined) {
+				patches.set(place.entity, { x: place.x, y: place.y })
+				continue
+			}
+			const inverse = parentMatrix.clone()
+			if (!inverse.invert()) continue
+			const local = inverse.transformPoint(this.#scratch.set(place.x, place.y, 0))
+			patches.set(place.entity, { x: local.x, y: local.y })
+		}
+		this.setTransforms(patches)
 	}
 
 	/**
@@ -226,7 +365,7 @@ export class EditorSession implements Disposable {
 				const restored = restoreWorld(this.world, this.registry, snapshot)
 				if (!restored.ok) throw restored.error
 				for (const [guid, restoredEntity] of restored.value) this.#guids.set(guid, restoredEntity)
-				this.#selection = this.#guids.get(copyRoot)
+				this.#only(this.#guids.get(copyRoot))
 			},
 			undo: () => {
 				const target = this.#resolve(copyRoot)
@@ -299,7 +438,7 @@ export class EditorSession implements Disposable {
 				const restored = restoreWorld(this.world, this.registry, snapshot)
 				if (!restored.ok) throw restored.error
 				for (const [guid, restoredEntity] of restored.value) this.#guids.set(guid, restoredEntity)
-				this.#selection = this.#guids.get(copyRoot)
+				this.#only(this.#guids.get(copyRoot))
 			},
 			undo: () => {
 				const target = this.#resolve(copyRoot)
@@ -627,7 +766,7 @@ export class EditorSession implements Disposable {
 		for (const guid of guids) {
 			if (guid !== undefined) this.#guids.delete(guid)
 		}
-		if (this.#selection !== undefined && !this.#isPersistent(this.#selection)) this.#selection = undefined
+		this.#assign(this.#selected.filter((entity) => this.#isPersistent(entity)))
 	}
 
 	#subtree(root: Entity): Entity[] {
@@ -668,6 +807,21 @@ export class EditorSession implements Disposable {
 	#touch(kind: ChangeKind): void {
 		if (kind === 'structure' || kind === 'name') this.#rows = undefined
 		this.#announce(kind)
+	}
+
+	#assign(next: Entity[]): void {
+		this.#selected = next
+		this.#selectedSet = new Set(next)
+	}
+
+	#only(entity: Entity | undefined): void {
+		this.#assign(entity === undefined ? [] : [entity])
+	}
+
+	#setSelected(next: Entity[]): void {
+		if (next.length === this.#selected.length && next.every((entity, index) => entity === this.#selected[index])) return
+		this.#assign(next)
+		this.#announce('selection')
 	}
 
 	#announce(kind: ChangeKind): void {
