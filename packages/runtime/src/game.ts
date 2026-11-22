@@ -1,10 +1,12 @@
 import { FixedTimestep, Logger, World, nullSink, type Disposable, type Entity, type Guid, type Result, ok } from '@strata/core'
 import { Controller, createGameRegistry, updateControllers, type ControllerInput } from '@strata/gameplay'
 import { ActionMap, InputManager } from '@strata/input'
-import { Collider, Physics } from '@strata/physics'
+import { Body, Collider, Physics } from '@strata/physics'
 import type { AssetLibrary } from '@strata/project'
 import { Camera2D, SpriteBatch, createRenderer, decodeImage, fitCanvasToDisplay, packColor, type Renderer, type Texture } from '@strata/renderer'
-import { Camera, Sprite, Transform, TransformSystem, loadScene } from '@strata/scene'
+import { Camera, Name, Sprite, Transform, TransformSystem, loadScene } from '@strata/scene'
+import { AudioSystem } from './audio.ts'
+import { isDrawable } from './visibility.ts'
 
 const UNIT = 32
 const GRAVITY = -900
@@ -33,7 +35,7 @@ interface Layer {
 }
 
 /**
- * Plays a scene: loads it into its own world, runs controllers, physics and transforms at a fixed rate, and draws it.
+ * Plays a scene: loads it into its own world, runs controllers, physics and transforms at a fixed rate, draws it and plays its audio.
  * It never touches the editor's world, so a play session cannot change the scene being edited.
  */
 export class Game implements Disposable {
@@ -44,19 +46,25 @@ export class Game implements Disposable {
 	readonly #transforms: TransformSystem
 	readonly #physics: Physics
 	readonly #input: InputManager
+	readonly #audio: AudioSystem
 	readonly #timestep = new FixedTimestep(60)
 	readonly #white: Texture
 	readonly #shapes = new SpriteBatch(256)
 	readonly #layers = new Map<string, Layer>()
 	readonly #textures = new Map<string, Texture | null>()
 	readonly #camera = new Camera2D()
+	#names: Map<string, Entity> | undefined
 	#running = false
 	#disposed = false
 	#frameId = 0
 	#last = 0
+	#frameSeconds = 0
 	#jump = false
 	#drawn = 0
 	#lastStatus = 0
+	#cameraX = 0
+	#cameraY = 0
+	#cameraReady = false
 
 	readonly #controls: ControllerInput = {
 		axisX: () => this.#axis('ArrowLeft', 'KeyA', 'ArrowRight', 'KeyD'),
@@ -76,6 +84,7 @@ export class Game implements Disposable {
 		this.#transforms = new TransformSystem(world, logger.child('transforms'))
 		this.#physics = new Physics(world, { gravityY: GRAVITY, setPosition: (entity, x, y) => this.#transforms.setLocal(entity, { x, y }) })
 		this.#input = new InputManager(options.canvas, new ActionMap())
+		this.#audio = new AudioSystem(options.assets, logger.child('audio'))
 		this.#white = renderer.createTexture({ width: 1, height: 1, data: new Uint8Array([255, 255, 255, 255]) }, 'nearest')
 		this.#transforms.update()
 	}
@@ -100,6 +109,7 @@ export class Game implements Disposable {
 		if (this.#running || this.#disposed) return
 		this.#running = true
 		this.#last = performance.now()
+		void this.#audio.start(this.world).catch((error: unknown) => this.#logger.error('Audio failed to start', error))
 		this.#frameId = requestAnimationFrame(this.#frame)
 	}
 
@@ -112,6 +122,7 @@ export class Game implements Disposable {
 		if (this.#disposed) return
 		this.stop()
 		this.#disposed = true
+		this.#audio.dispose()
 		this.#input.dispose()
 		this.#renderer.dispose()
 		this.#transforms.dispose()
@@ -125,8 +136,9 @@ export class Game implements Disposable {
 
 	readonly #frame = (now: number): void => {
 		if (!this.#running) return
-		const seconds = Math.min(MAX_FRAME_SECONDS, (now - this.#last) / 1000)
+		const seconds = Math.min(MAX_FRAME_SECONDS, Math.max(0, (now - this.#last) / 1000))
 		this.#last = now
+		this.#frameSeconds = seconds
 		this.#input.update()
 		const keys = this.#input.keyboard
 		if (keys.wasPressed('Space') || keys.wasPressed('ArrowUp') || keys.wasPressed('KeyW')) this.#jump = true
@@ -145,7 +157,9 @@ export class Game implements Disposable {
 		}
 		if (now - this.#lastStatus > 250) {
 			this.#lastStatus = now
-			this.#options.onStatus?.(`${this.#renderer.backend} · ${this.world.entityCount} entities · ${this.#drawn} drawn`)
+			const bodies = this.world.query(Body).length
+			const players = this.world.query(Controller, Body).length
+			this.#options.onStatus?.(`${this.#renderer.backend} · ${this.world.entityCount} entities · ${this.#drawn} drawn · ${bodies} bodies · ${players} players`)
 		}
 		this.#frameId = requestAnimationFrame(this.#frame)
 	}
@@ -175,20 +189,61 @@ export class Game implements Disposable {
 		return undefined
 	}
 
+	#findByName(name: string): Entity | undefined {
+		if (this.#names === undefined) {
+			this.#names = new Map()
+			for (const entity of this.world.query(Name)) {
+				const value = this.world.require(entity, Name).value
+				if (!this.#names.has(value)) this.#names.set(value, entity)
+			}
+		}
+		return this.#names.get(name)
+	}
+
+	#updateCamera(): void {
+		const view = this.world.query(Camera)[0]
+		let targetX = 0
+		let targetY = 0
+		let zoom = 1
+		let smoothing = 0
+		if (view !== undefined) {
+			const data = this.world.require(view, Camera)
+			const own = this.#transforms.worldMatrix(view)
+			targetX = own?.elements[12] ?? 0
+			targetY = own?.elements[13] ?? 0
+			const followed = data.follow === '' ? undefined : this.#findByName(data.follow)
+			const target = followed === undefined ? undefined : this.#transforms.worldMatrix(followed)
+			if (target !== undefined) {
+				targetX = target.elements[12] ?? targetX
+				targetY = target.elements[13] ?? targetY
+			}
+			zoom = Math.max(0.01, data.zoom)
+			smoothing = data.smoothing
+		}
+		if (!this.#cameraReady || smoothing <= 0) {
+			this.#cameraX = targetX
+			this.#cameraY = targetY
+			this.#cameraReady = true
+		} else {
+			const blend = 1 - Math.exp(-smoothing * this.#frameSeconds)
+			this.#cameraX += (targetX - this.#cameraX) * blend
+			this.#cameraY += (targetY - this.#cameraY) * blend
+		}
+		this.#camera.x = this.#cameraX
+		this.#camera.y = this.#cameraY
+		this.#camera.zoom = zoom
+	}
+
 	#draw(): void {
 		const canvas = this.#options.canvas
 		fitCanvasToDisplay(canvas)
-		const view = this.world.query(Camera)[0]
-		const viewMatrix = view === undefined ? undefined : this.#transforms.worldMatrix(view)
-		this.#camera.x = viewMatrix?.elements[12] ?? 0
-		this.#camera.y = viewMatrix?.elements[13] ?? 0
-		this.#camera.zoom = view === undefined ? 1 : Math.max(0.01, this.world.require(view, Camera).zoom)
+		this.#updateCamera()
 		const viewProjection = this.#camera.update(canvas.width, canvas.height)
 		this.#shapes.clear()
 		for (const layer of this.#layers.values()) layer.batch.clear()
 		this.#drawn = 0
 		for (const entity of this.world.query(Transform)) {
-			if (this.world.has(entity, Camera)) continue
+			if (!isDrawable(this.world, entity)) continue
 			this.#drawEntity(entity)
 			this.#drawn++
 		}

@@ -7,6 +7,12 @@ import { Game } from '@strata/runtime'
 import { saveScene } from '@strata/scene'
 import { logger } from './logger.ts'
 
+function hint(status: string): string {
+	if (status.includes(' 0 drawn')) return `${status} · nothing to draw`
+	if (status.endsWith(' 0 players')) return `${status} · select your entity and click Make player`
+	return status
+}
+
 /**
  * Plays the current scene in its own world, so edits are never affected. Escape or Stop returns to the editor.
  */
@@ -30,6 +36,9 @@ export function PlayOverlay(props: { readonly session: EditorSession; readonly o
 					const canvas = element as HTMLCanvasElement
 					let game: Game | undefined
 					let closed = false
+					if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+					canvas.tabIndex = -1
+					requestAnimationFrame(() => canvas.focus({ preventScroll: true }))
 					const onKey = (event: KeyboardEvent): void => {
 						if (event.key !== 'Escape') return
 						event.stopPropagation()
@@ -45,7 +54,7 @@ export function PlayOverlay(props: { readonly session: EditorSession; readonly o
 							assets: props.session.project.assets,
 							sceneText: text.value,
 							logger: logger.child('game'),
-							onStatus: (status) => message.set(status.endsWith(' 0 drawn') ? `${status} · nothing to draw, add a Player and a Platform` : status),
+							onStatus: (status) => message.set(hint(status)),
 							onError: (error) => message.set(`Error: ${error}`)
 						})
 							.then((result) => {

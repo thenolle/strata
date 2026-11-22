@@ -210,7 +210,7 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 			></div>
 			<AssetsPanel session={session} onNotice={(text) => notice.set(text)} />
 			<aside class="panel inspector" aria-label="Inspector">
-				<Inspector session={session} selected={selected} revision={fieldRevision} />
+				<Inspector session={session} selected={selected} revision={fieldRevision} run={(id) => run(id)} />
 			</aside>
 			<footer class="workspace-status">{status}</footer>
 			{() =>

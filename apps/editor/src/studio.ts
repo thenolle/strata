@@ -1,5 +1,5 @@
 import { CommandRegistry, ContextKeys, KeybindingService } from '@strata/commands'
-import { DisposableStore, type Disposable, type Guid } from '@strata/core'
+import { DisposableStore, type Disposable, type Entity, type Guid } from '@strata/core'
 import type { EditorSession } from '@strata/editor-core'
 import { MenuRegistry } from '@strata/menus'
 
@@ -74,6 +74,12 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 		return { id: record.id, name: record.name }
 	}
 
+	const colliderSize = (entity: Entity): { readonly width: number; readonly height: number } => {
+		const asset = session.spriteOf(entity)
+		const record = asset === '' ? undefined : session.project.assets.get(asset as Guid)
+		return record?.kind === 'image' ? { width: record.image.width, height: record.image.height } : { width: 32, height: 32 }
+	}
+
 	// Commands
 
 	const command = (id: string, title: string, category: string, run: (args?: unknown) => void | Promise<void>, when?: string): void => { store.add(commands.register({ id, title, category, ...(when === undefined ? {} : { when }), run })) }
@@ -117,6 +123,14 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 	command('entity.duplicate', 'Duplicate Selected Entity', 'Entity', () => {
 		const selected = session.selection
 		if (selected !== undefined) session.duplicate(selected)
+	}, 'hasSelection')
+	command('entity.makePlayer', 'Make Selected a Player', 'Entity', () => {
+		const entity = session.selection
+		if (entity !== undefined) session.addComponents(entity, { body: { kind: 'dynamic' }, collider: colliderSize(entity), controller: {} })
+	}, 'hasSelection')
+	command('entity.makeSolid', 'Make Selected Solid', 'Entity', () => {
+		const entity = session.selection
+		if (entity !== undefined) session.addComponents(entity, { body: { kind: 'static' }, collider: colliderSize(entity) })
 	}, 'hasSelection')
 
 	command('tool.move', 'Move Tool', 'Tools', () => contexts.set('tool', 'move'))
@@ -162,6 +176,10 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 
 	contribute('entity/create', { command: 'entity.add', title: 'Entity', group: '1_create@1' })
 	contribute('entity/create', { command: 'entity.addChild', title: 'Child Entity', group: '1_create@2' })
+	for (const menu of ['outline/context', 'viewport/context']) {
+		contribute(menu, { command: 'entity.makePlayer', group: '2_modify@3', when: 'hasSelection' })
+		contribute(menu, { command: 'entity.makeSolid', group: '2_modify@4', when: 'hasSelection' })
+	}
 
 	contribute('outline/context', { submenu: 'entity/create', title: 'Create', group: '1_create' })
 	contribute('outline/context', { command: 'entity.rename', group: '2_modify@1' })
