@@ -38,3 +38,4 @@
 - Project: asset folders with create, rename, move and delete. Editor: file tree explorer and a script IDE workbench with tabs, docs and a status bar.
 - Editor: resizable panels with remembered sizes, SVG icon set and icon explorer, Rect tool for visual resizing, viewport toolbar and a 2D and 3D mode switch.
 - IDE: find and replace, go to line, auto-close brackets, comment toggle, move and duplicate lines, indent selections, bracket matching, go to definition, signature help, rename and format. Context menus now appear above the IDE.
+- IDE: test run with a sandboxed runner and Output panel, inline error messages and gutter markers, richer hover, working format with status. Fixes for slow rendering and scroll jumps.

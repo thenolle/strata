@@ -43,6 +43,7 @@ const FRAME_POLICY = [
 	"frame-ancestors 'self'"
 ].join('; ')
 const FRAME_HTML = '<!doctype html><meta charset="utf-8"><title>Strata play</title><style>html,body{margin:0;height:100%;background:#0f1114}canvas{display:block;width:100%;height:100%;outline:none}</style><canvas id="game" tabindex="0"></canvas><script src="/assets/player.js"></script>'
+const RUNNER_HTML = '<!doctype html><meta charset="utf-8"><title>Strata runner</title><script src="/assets/runner.js"></script>'
 
 async function build(): Promise<boolean> {
 	const result = await Bun.build({
@@ -59,19 +60,21 @@ async function build(): Promise<boolean> {
 		for (const log of result.logs) console.error(log)
 		return false
 	}
-	const player = await Bun.build({
-		entrypoints: [join(editor, 'src/player.ts')],
-		target: 'browser',
-		format: 'iife',
-		outdir: assets,
-		naming: { entry: 'player.js' },
-		sourcemap: 'external',
-		minify: false,
-		define: { 'process.env.NODE_ENV': '"development"' }
-	})
-	if (!player.success) {
-		for (const log of player.logs) console.error(log)
-		return false
+	for (const name of ['player', 'runner']) {
+		const built = await Bun.build({
+			entrypoints: [join(editor, `src/${name}.ts`)],
+			target: 'browser',
+			format: 'iife',
+			outdir: assets,
+			naming: { entry: `${name}.js` },
+			sourcemap: 'external',
+			minify: false,
+			define: { 'process.env.NODE_ENV': '"development"' }
+		})
+		if (!built.success) {
+			for (const log of built.logs) console.error(log)
+			return false
+		}
 	}
 	await mkdir(assets, { recursive: true })
 	await copyFile(fileURLToPath(import.meta.resolve('@gambrel/components/styles.css')), join(assets, 'components.css'))
@@ -112,6 +115,7 @@ const app = createApp({ development: true })
 		return reply(await ide.handle(ctx.params.action, body))
 	})
 	.get('/play/frame.html', () => html(FRAME_HTML, { headers: { 'cache-control': 'no-store', 'content-security-policy': FRAME_POLICY } }))
+	.get('/play/runner.html', () => html(RUNNER_HTML, { headers: { 'cache-control': 'no-store', 'content-security-policy': FRAME_POLICY } }))
 	.get('/', async () => html(`<!doctype html>${await renderToString(Shell())}`, { headers: { 'cache-control': 'no-store' } }))
 
 const server = serve(app, { port, hostname: 'localhost', development: true })

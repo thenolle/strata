@@ -33,7 +33,7 @@ try {
 	const hoverLines = template.split('\n')
 	const hoverLine = hoverLines.findIndex((text) => text.includes('ctx.setPosition'))
 	const hover = await ide.hover('check', hoverLine, (hoverLines[hoverLine] ?? '').indexOf('setPosition') + 2)
-	console.log('hover', hover.includes('setPosition'))
+	console.log('hover', hover.text.includes('setPosition'))
 	const signed = template.replace(call, 'ctx.log(')
 	await ide.sync('check', signed)
 	const signedLines = signed.split('\n')

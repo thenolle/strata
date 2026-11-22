@@ -152,11 +152,13 @@ export class Ide {
 		return list.slice(0, 300).flatMap(normalize)
 	}
 
-	async hover(name: string, line: number, character: number): Promise<string> {
+	async hover(name: string, line: number, character: number): Promise<{ readonly text: string; readonly range?: { readonly line: number; readonly character: number; readonly endLine: number; readonly endCharacter: number } }> {
 		const client = await this.#ensure()
-		if (!this.#versions.has(name)) return ''
-		const result = await client.request('textDocument/hover', { textDocument: { uri: this.#uri(`${name}.ts`) }, position: { line, character } })
-		return hoverText((result as { readonly contents?: unknown } | null)?.contents)
+		if (!this.#versions.has(name)) return { text: '' }
+		const result = (await client.request('textDocument/hover', { textDocument: { uri: this.#uri(`${name}.ts`) }, position: { line, character } })) as { readonly contents?: unknown; readonly range?: LspRange } | null
+		const text = hoverText(result?.contents)
+		const range = result?.range
+		return range === undefined ? { text } : { text, range: { line: range.start.line, character: range.start.character, endLine: range.end.line, endCharacter: range.end.character } }
 	}
 
 	async diagnostics(name: string): Promise<DiagnosticOut[]> {
@@ -215,7 +217,7 @@ export class Ide {
 				case 'completion':
 					return hasPosition ? { ok: true, items: await this.completion(name, line, character) } : { ok: false, error: 'Invalid position' }
 				case 'hover':
-					return hasPosition ? { ok: true, text: await this.hover(name, line, character) } : { ok: false, error: 'Invalid position' }
+					return hasPosition ? { ok: true, ...(await this.hover(name, line, character)) } : { ok: false, error: 'Invalid position' }
 				case 'definition':
 					return hasPosition ? { ok: true, result: await this.definition(name, line, character) } : { ok: false, error: 'Invalid position' }
 				case 'signature':

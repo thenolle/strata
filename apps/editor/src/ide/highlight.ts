@@ -14,12 +14,31 @@ interface LineRange {
 	readonly severity: number
 }
 
-const KEYWORDS = new Set(
-	'abstract as async await break case catch class const continue debugger declare default delete do else enum export extends false finally for from function get if implements import in instanceof interface is keyof let namespace new null of override private protected public readonly return satisfies set static super switch this throw true try type typeof undefined var void while with yield'.split(' ')
-)
+const KEYWORDS = new Set('abstract as async await break case catch class const continue debugger declare default delete do else enum export extends false finally for from function get if implements import in instanceof interface is keyof let namespace new null of override private protected public readonly return satisfies set static super switch this throw true try type typeof undefined var void while with yield'.split(' '))
 const PRIMITIVES = new Set(['string', 'number', 'boolean', 'any', 'unknown', 'never', 'object', 'symbol', 'bigint'])
 const NUMBER = /^(?:0[xX][0-9a-fA-F_]+|\d[\d_]*\.?\d*(?:[eE][+-]?\d+)?|\.\d+)/
 const IDENTIFIER = /^[A-Za-z_$][\w$]*/
+
+function summary(message: string): string {
+	const first = message.split('\n')[0] ?? ''
+	return first.length > 160 ? `${first.slice(0, 157)}…` : first
+}
+
+/**
+ * The line numbers, with the numbers of lines that have problems colored.
+ */
+export function renderGutter(count: number, diagnostics: readonly Diagnostic[]): string {
+	const worst = new Map<number, number>()
+	for (const item of diagnostics) {
+		if (item.severity < 1) continue
+		const current = worst.get(item.line)
+		if (current === undefined || item.severity < current) worst.set(item.line, item.severity)
+	}
+	return Array.from({ length: count }, (_, index) => {
+		const severity = worst.get(index)
+		return severity === undefined ? String(index + 1) : `<span class="gutter-${severity === 1 ? 'error' : 'warning'}">${index + 1}</span>`
+	}).join('\n')
+}
 
 /**
  * Splits one line into tokens. The state carries multi-line comments and template strings from one line to the next.
@@ -119,6 +138,7 @@ function markClass(severity: number): string {
 		case 0: return ' bracket-match'
 		case -1: return ' find-match'
 		case -2: return ' find-current'
+		case -3: return ' hover-range'
 		default: return ' squiggle-warning'
 	}
 }
@@ -166,12 +186,20 @@ export function renderLines(text: string, diagnostics: readonly Diagnostic[]): s
 			byLine.set(line, list)
 		}
 	}
+	const notes = new Map<number, Diagnostic>()
+	for (const item of diagnostics) {
+		if (item.severity < 1 || item.message === '') continue
+		const known = notes.get(item.line)
+		if (known === undefined || item.severity < known.severity) notes.set(item.line, item)
+	}
 	let state: LineState = 'code'
 	const html: string[] = []
 	for (let index = 0; index < lines.length; index++) {
 		const result = tokenizeLine(lines[index] ?? '', state)
 		state = result.state
-		html.push(renderLine(result.tokens, byLine.get(index) ?? []))
+		const note = notes.get(index)
+		const inline = note === undefined ? '' : `<span class="ide-inline ${note.severity === 1 ? 'ide-inline-error' : 'ide-inline-warning'}">${escapeHtml(summary(note.message))}</span>`
+		html.push(renderLine(result.tokens, byLine.get(index) ?? []) + inline)
 	}
 	return html.join('\n')
 }

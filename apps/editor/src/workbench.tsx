@@ -10,6 +10,7 @@ import guide from './ide/docs.txt'
 import { ideClient, type Diagnostic } from './ide/ide-client.ts'
 import { renderMarkdown } from './ide/markdown.ts'
 import type { Layout } from './layout.ts'
+import { runScript } from './ide/runner-client.ts'
 
 interface Doc {
 	readonly id: Guid
@@ -32,6 +33,37 @@ export function Workbench(props: {
 	readonly split: (handle: Element, key: keyof Layout, axis: 'x' | 'y', direction: 1 | -1, min: number, max: () => number) => void
 	readonly onClose: () => void
 }): Child {
+	const panel = signal<'problems' | 'output'>('problems')
+	const output = signal<readonly string[]>([])
+	const steps = signal(60)
+	const keys = signal('')
+	let running = false
+
+	const print = (...lines: string[]): void => {
+		output.set([...output.peek(), ...lines].slice(-500))
+		panel.set('output')
+	}
+
+	const run = async (): Promise<void> => {
+		const doc = current()
+		if (doc === undefined || running) return
+		running = true
+		const held = keys.peek().split(/[\s,]+/).filter((key) => key !== '')
+		print(`▶ ${doc.name} · ${steps.peek()} steps${held.length > 0 ? ` · holding ${held.join(', ')}` : ''}`)
+		const outcome = await runScript(doc.editor.value, steps.peek(), held).catch((error: unknown) => ({ ok: false as const, error: String(error) }))
+		running = false
+		if (!outcome.ok) {
+			print(`✕ ${outcome.error}`)
+			return
+		}
+		const result = outcome.result
+		print(
+			...result.logs.map((line) => `  ${line}`),
+			...result.errors.map((line) => `✕ ${line}`),
+			`✓ finished in ${result.ms.toFixed(0)} ms · position (${result.transform.x.toFixed(2)}, ${result.transform.y.toFixed(2)})`
+		)
+	}
+
 	const open = new Map<Guid, Doc>()
 	const tabs = signal<readonly Guid[]>([])
 	const active = signal<Guid | undefined>(undefined)
@@ -115,7 +147,9 @@ export function Workbench(props: {
 				doc.line = line
 				doc.column = column
 				bump()
-			}
+			},
+			onRun: () => void run(),
+			onStatus: (text) => message.set(text),
 		})
 		const doc: Doc = { id, name: record.name, editor, dirty: false, diagnostics: [], line: 1, column: 1 }
 		open.set(id, doc)
@@ -152,9 +186,23 @@ export function Workbench(props: {
 					<strong>Strata IDE</strong>
 					<span>{props.session.project.name}</span>
 					<span class="spacer"></span>
-					<button class="wb-button" type="button" onClick={requestClose}>
-						Back to editor
-					</button>
+					<span class="wb-run-config">
+						<label>Steps <input type="number" min="1" max="3600" value="60" ref={(element: Element) => {
+							const input = element as HTMLInputElement
+							const onInput = (): void => steps.set(Math.max(1, Math.min(3600, Number(input.value) || 60)))
+							input.addEventListener('input', onInput)
+							onCleanup(() => input.removeEventListener('input', onInput))
+						}} /></label>
+						<label>Keys held <input type="text" placeholder="ArrowRight, Space" ref={(element: Element) => {
+							const input = element as HTMLInputElement
+							const onInput = (): void => keys.set(input.value)
+							input.addEventListener('input', onInput)
+							onCleanup(() => input.removeEventListener('input', onInput))
+						}} /></label>
+					</span>
+					<button class="wb-button" type="button" title="Run the script (Ctrl+Enter)" onClick={() => void run()}>▶ Run</button>
+					<button class="wb-button" type="button" title="Format document (Ctrl+Shift+I)" onClick={() => current()?.editor.formatDocument()}>Format</button>
+					<button class="wb-button" type="button" onClick={requestClose}>Back to editor</button>
 				</header>
 				<div class="wb-left">
 					{() => (
@@ -187,10 +235,10 @@ export function Workbench(props: {
 										element.append(
 											renderMarkdown(guide, {
 												onInsert: (code) => {
-												const id = active.peek()
-												if (id !== undefined) open.get(id)?.editor.insertText(code)
-											}
-										})
+													const id = active.peek()
+													if (id !== undefined) open.get(id)?.editor.insertText(code)
+												}
+											})
 										)
 									}}
 								></aside>
@@ -245,26 +293,31 @@ export function Workbench(props: {
 					</div>
 					<div class="wb-problems">
 						<div class="splitter splitter-row wb-problems-handle" ref={(handle: Element) => props.split(handle, 'ideProblems', 'y', -1, 60, () => 500)}></div>
-						<div class="wb-panel-title">
+						<div class="wb-panel-tabs">
 							{() => {
 								tick()
-								const doc = current()
-								return doc === undefined ? 'Problems' : `Problems (${doc.diagnostics.length})`
+								const count = current()?.diagnostics.length ?? 0
+								return (
+									<div class="wb-panel-tabs-inner">
+										<button type="button" class="wb-panel-tab" data-active={String(panel() === 'problems')} onClick={() => panel.set('problems')}>{`Problems (${count})`}</button>
+										<button type="button" class="wb-panel-tab" data-active={String(panel() === 'output')} onClick={() => panel.set('output')}>Output</button>
+										<button type="button" class="wb-panel-tab" onClick={() => output.set([])}>Clear</button>
+									</div>
+								)
 							}}
 						</div>
-						<ul class="script-problems">
-							{() => {
-								tick()
-								const doc = current()
-								const items = doc?.diagnostics ?? []
-								if (items.length === 0) return <li class="ok">No problems</li>
-								return items.map((item) => (
-									<li class={item.severity === 1 ? 'error' : 'warning'} onClick={() => doc?.editor.reveal(item.line, item.character)}>
-										{`${item.line + 1}:${item.character + 1}  ${item.message}`}
-									</li>
-								))
-							}}
-						</ul>
+						{() => panel() === 'output' ? (<pre class="wb-output">{() => output().join('\n')}</pre>) : (<ul class="script-problems">{() => {
+							tick()
+							const doc = current()
+							const items = doc?.diagnostics ?? []
+							if (items.length === 0) return <li class="ok">No problems</li>
+							return items.map((item) => (
+								<li class={item.severity === 1 ? 'error' : 'warning'} onClick={() => doc?.editor.reveal(item.line, item.character)}>
+									{`${item.line + 1}:${item.character + 1}  ${item.message}`}
+								</li>
+							))
+						}}
+						</ul>)}
 					</div>
 				</section>
 				<footer class="wb-status">
