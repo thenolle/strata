@@ -1,9 +1,10 @@
 /** @jsxImportSource @gambrel/view */
-import { Button } from '@gambrel/components'
 import { effect, onCleanup, signal } from '@gambrel/reactivity'
 import type { Child } from '@gambrel/view'
 import type { EditorSession } from '@strata/editor-core'
 import { ASSET_MIME } from './viewport.ts'
+import { createIcon, type IconName } from './icons.ts'
+import { IconButton } from './ui.tsx'
 
 export type Asset = ReturnType<EditorSession['project']['assets']['list']>[number]
 
@@ -17,7 +18,7 @@ interface Row {
 	readonly open?: boolean
 }
 
-const BADGES: Readonly<Record<string, string>> = { image: 'IMG', audio: 'WAV', script: 'TS' }
+const ICON_OF: Readonly<Record<string, IconName>> = { image: 'image', audio: 'audio', script: 'typescript' }
 
 function buildRows(session: EditorSession, expanded: ReadonlySet<string>, kinds: readonly string[] | undefined): Row[] {
 	const library = session.project.assets
@@ -155,26 +156,20 @@ export function Explorer(props: {
 				})
 			}}
 		>
-			<div class="panel-actions">
-				<Button size="sm" onClick={() => picker?.click()}>
-					Import
-				</Button>
-				<Button size="sm" variant="outline" onClick={() => props.run('script.new', { folder: targetFolder() })}>
-					New script
-				</Button>
-				<Button size="sm" variant="outline" onClick={() => props.run('folder.new', { folder: targetFolder() })}>
-					New folder
-				</Button>
-				<Button
-					size="sm"
-					variant="outline"
+			<div class="explorer-bar">
+				<strong>Explorer</strong>
+				<span class="spacer"></span>
+				<IconButton icon="new-file" title="New script" onClick={() => props.run('script.new', { folder: targetFolder() })} />
+				<IconButton icon="new-folder" title="New folder" onClick={() => props.run('folder.new', { folder: targetFolder() })} />
+				<IconButton icon="import" title="Import files" onClick={() => picker?.click()} />
+				<IconButton
+					icon="trash"
+					title="Delete selected"
 					onClick={() => {
 						const row = selectedRow()
 						if (row !== undefined) deleteRow(row)
 					}}
-				>
-					Delete
-				</Button>
+				/>
 				<input
 					type="file"
 					accept=".png,.wav,.ts,image/png,audio/wav"
@@ -257,8 +252,8 @@ export function Explorer(props: {
 									}
 								}}
 							>
-								<span class="tree-chevron">{row.asset === undefined ? (row.open === true ? '▾' : '▸') : ''}</span>
-								<span class="tree-badge">{row.asset === undefined ? '' : (BADGES[row.asset.kind] ?? '')}</span>
+								<span class="tree-chevron" ref={(element: Element) => { if (row.asset === undefined) element.append(createIcon(row.open === true ? 'chevron-down' : 'chevron-right', 12)) }}></span>
+								<span class="tree-icon" ref={(element: Element) => { element.append(createIcon(row.asset === undefined ? (row.open === true ? 'folder-open' : 'folder') : (ICON_OF[row.asset.kind] ?? 'file'), 16)) }}></span>
 								<span class="tree-label">{row.label}</span>
 							</li>
 						))}

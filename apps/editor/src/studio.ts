@@ -106,11 +106,13 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 	command('workbench.action.showCommands', 'Show All Commands', 'View', hooks.openPalette)
 	command('workbench.action.showContextMenu', 'Show Context Menu', 'View', hooks.openContextMenu)
 
-	command('view.toggleGrid', 'Toggle Grid', 'View', () => contexts.set('gridVisible', contexts.get('gridVisible') !== true))
-
 	command('file.save', 'Save', 'File', hooks.save)
 
 	command('project.close', 'Close Project', 'File', hooks.close)
+
+	command('view.toggleGrid', 'Toggle Grid', 'View', () => contexts.set('gridVisible', contexts.get('gridVisible') !== true))
+	command('view.mode2d', 'Switch to 2D View', 'View', () => contexts.set('viewMode', '2d'))
+	command('view.mode3d', 'Switch to 3D View', 'View', () => contexts.set('viewMode', '3d'))
 
 	command('asset.addToScene', 'Add Asset to Scene', 'Asset', (args) => {
 		const asset = imageAsset(args)
@@ -181,6 +183,7 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 	command('tool.move', 'Move Tool', 'Tools', () => contexts.set('tool', 'move'))
 	command('tool.rotate', 'Rotate Tool', 'Tools', () => contexts.set('tool', 'rotate'))
 	command('tool.scale', 'Scale Tool', 'Tools', () => contexts.set('tool', 'scale'))
+	command('tool.rect', 'Rect Tool', 'Tools', () => contexts.set('tool', 'rect'))
 
 	command('edit.copy', 'Copy', 'Edit', () => void copySelection(), 'hasSelection')
 	command('edit.cut', 'Cut', 'Edit', () => {
@@ -260,6 +263,7 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 		{ keys: 'mod+c', command: 'edit.copy', when: 'hasSelection && !textInputFocus' },
 		{ keys: 'mod+x', command: 'edit.cut', when: 'hasSelection && !textInputFocus' },
 		{ keys: 'mod+v', command: 'edit.paste', when: 'hasClipboard && !textInputFocus' },
+		{ keys: 't', command: 'tool.rect', when: '!textInputFocus' },
 	])
 	if (!added.ok) throw added.error
 
