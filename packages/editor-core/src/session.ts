@@ -1,13 +1,13 @@
 import { Emitter, Identity, Logger, StrataError, World, assignIdentity, createGuid, nullSink, ok, restoreWorld, snapshotEntities, type Disposable, type Entity, type Guid, type Result } from '@strata/core'
 import { Vec3, degToRad, radToDeg, trig, wrapAngle } from '@strata/math'
 import type { Project } from '@strata/project'
-import { Name, Parent, Transform, TransformSystem, createSceneRegistry, loadScene, saveScene, type TransformData } from '@strata/scene'
+import { Name, Parent, Transform, TransformSystem, createSceneRegistry, loadScene, saveScene, Sprite, type TransformData } from '@strata/scene'
 import { History, type UndoableCommand } from './history.ts'
 
 export const MAIN_SCENE = 'main'
 const MAX_NAME_LENGTH = 128
 
-export type ChangeKind = 'structure' | 'selection' | 'name' | 'transform' | 'saved'
+export type ChangeKind = 'structure' | 'selection' | 'name' | 'transform' | 'sprite' | 'assets' | 'saved'
 
 export interface EntityRow {
 	readonly entity: Entity
@@ -22,6 +22,7 @@ export interface CreateEntityOptions {
 	readonly x?: number
 	readonly y?: number
 	readonly select?: boolean
+	readonly asset?: string
 }
 
 interface SpawnData {
@@ -30,6 +31,7 @@ interface SpawnData {
 	readonly x: number
 	readonly y: number
 	readonly parent: Guid | undefined
+	readonly asset: string
 }
 
 interface ValueCommand<V> extends UndoableCommand {
@@ -122,7 +124,8 @@ export class EditorSession implements Disposable {
 			name: options.name ?? `Entity ${this.world.query(Identity).length + 1}`,
 			x: options.x ?? 0,
 			y: options.y ?? 0,
-			parent: options.parent === undefined ? undefined : this.#guidOf(options.parent)
+			parent: options.parent === undefined ? undefined : this.#guidOf(options.parent),
+			asset: options.asset ?? '',
 		}
 		const select = options.select !== false
 		this.#perform({
@@ -229,6 +232,32 @@ export class EditorSession implements Disposable {
 	setRotationDegrees(entity: Entity, degrees: number): void {
 		const half = degToRad(degrees) / 2
 		this.setTransform(entity, { qx: 0, qy: 0, qz: trig.sin(half), qw: trig.cos(half) })
+	}
+
+	spriteOf(entity: Entity): string {
+		return this.world.get(entity, Sprite)?.asset ?? ''
+	}
+
+	setSprite(entity: Entity, asset: string): void {
+		const guid = this.#guidOf(entity)
+		const before = this.spriteOf(entity)
+		if (guid === undefined || before === asset) return
+		this.#perform(
+			this.#valueCommand<string>('sprite', `sprite:${guid}`, 'Set sprite', before, asset, (value) => {
+				const target = this.#resolve(guid)
+				if (target === undefined) return
+				const data = this.world.get(target, Sprite)
+				if (data === undefined) this.world.add(target, Sprite, { asset: value })
+				else data.asset = value
+			})
+		)
+	}
+
+	/**
+	 * Announces that the project's asset list changed, so pickers refresh.
+	 */
+	notifyAssetsChanged(): void {
+		this.#announce('assets')
 	}
 
 	/**
@@ -349,6 +378,7 @@ export class EditorSession implements Disposable {
 		assignIdentity(this.world, entity, data.guid)
 		this.world.add(entity, Name, { value: data.name })
 		this.world.add(entity, Transform, { x: data.x, y: data.y })
+		if (data.asset !== '') this.world.add(entity, Sprite, { asset: data.asset })
 		const parent = data.parent === undefined ? undefined : this.#resolve(data.parent)
 		if (parent !== undefined) this.transforms.setParent(entity, parent)
 		this.#guids.set(data.guid, entity)

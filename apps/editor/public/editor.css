@@ -149,13 +149,75 @@ body {
   background: #2b4a7a;
 }
 
-.viewport {
-  position: relative;
-  grid-area: viewport;
-  min-width: 0;
-  min-height: 0;
+.workspace {
+  display: grid;
+  height: 100%;
+  grid-template-columns: 240px minmax(0, 1fr) 280px;
+  grid-template-rows: 44px minmax(0, 1fr) 170px 28px;
+  grid-template-areas: 'bar bar bar'
+  'outline viewport inspector'
+  'outline assets inspector'
+  'status status status';
+}
+
+.assets {
+  grid-area: assets;
+  border-top: 1px solid #2c3037;
+}
+
+.tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tile {
+  display: grid;
+  width: 84px;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid #2c3037;
+  border-radius: 6px;
+  background: #14161a;
+  cursor: grab;
+}
+
+.tile:hover {
+  border-color: #3a3f47;
+}
+
+.tile img {
+  width: 100%;
+  height: 56px;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+.tile-kind {
+  display: grid;
+  height: 56px;
+  place-items: center;
+  color: #8b93a0;
+  font: 12px monospace;
+}
+
+.tile-name {
   overflow: hidden;
-  background: #0f1114;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.field select {
+  padding: 7px 10px;
+  border: 1px solid #3a3f47;
+  border-radius: 6px;
+  background: #1d2026;
+  color: inherit;
+  font: inherit;
 }
 
 .workspace-status {

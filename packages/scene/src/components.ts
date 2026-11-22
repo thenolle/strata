@@ -19,6 +19,11 @@ export const Parent = defineComponent('parent', { parent: 'entity' }, { parent: 
  */
 export const Name = defineComponent('name', { value: 'string' }, { value: 'Entity' })
 
+/**
+ * Draws an image asset, referenced by its id. An empty string means no image.
+ */
+export const Sprite = defineComponent('sprite', { asset: 'string' }, { asset: '' })
+
 export type TransformData = ComponentData<(typeof Transform)['schema']>
 
 export function createSceneRegistry(): ComponentRegistry {
