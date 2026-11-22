@@ -5,6 +5,8 @@ import type { Child } from '@gambrel/view'
 import type { Result } from '@strata/core'
 import type { Project } from '@strata/project'
 import { createProject, deleteProject, duplicateProject, exportProject, importProject, listProjects, openProject, protectStorage, renameProject, storageInfo, type ProjectSummary, type StorageInfo } from './projects.ts'
+import { askPassword } from './password-dialog.ts'
+import { MIN_PASSWORD, isSealed } from './seal.ts'
 
 const MAX_IMPORT_BYTES = 1024 * 1024 * 1024
 
@@ -90,11 +92,13 @@ export function Launcher(props: { readonly onOpen: (project: Project) => Promise
 	}
 
 	const save = async (summary: ProjectSummary): Promise<void> => {
+		const password = await askPassword({ title: `Encrypt "${summary.name}"`, confirm: true, minLength: MIN_PASSWORD })
+		if (password === undefined) return
 		await act(async () => {
-			const result = await exportProject(summary.storageName)
+			const result = await exportProject(summary.storageName, password)
 			if (result.ok) download(result.value.fileName, result.value.bytes)
 			return result
-		}, `Exported "${summary.name}". Keep the file somewhere safe.`)
+		}, `Exported "${summary.name}" as an encrypted file. Keep the password safe: it cannot be recovered.`)
 	}
 
 	const load = async (file: File): Promise<void> => {
@@ -102,7 +106,14 @@ export function Launcher(props: { readonly onOpen: (project: Project) => Promise
 			message.set('That file is larger than 1 GB')
 			return
 		}
-		await act(async () => importProject(new Uint8Array(await file.arrayBuffer())), `Imported ${file.name}`)
+		const bytes = new Uint8Array(await file.arrayBuffer())
+		let password = ''
+		if (isSealed(bytes)) {
+			const entered = await askPassword({ title: `Open ${file.name}`, confirm: false, minLength: 1 })
+			if (entered === undefined) return
+			password = entered
+		}
+		await act(() => importProject(bytes, password), `Imported ${file.name}`)
 	}
 
 	const protect = async (): Promise<void> => {

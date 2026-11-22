@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, posix, relative } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { LspClient, type RawDiagnostic } from './lsp.ts'
@@ -411,12 +411,14 @@ export class Ide {
 	async #boot(): Promise<LspClient> {
 		await mkdir(this.#directory, { recursive: true })
 		await rm(join(this.#directory, 'project'), { recursive: true, force: true })
-		await copyFile(join(this.#root, 'packages/scripting/src/api.ts'), join(this.#directory, 'strata.ts'))
+		const api = await readFile(join(this.#root, 'packages/scripting/src/api.ts'), 'utf8')
+		await writeFile(join(this.#directory, 'strata.ts'), `${api}\nexport * from './strata-lib/index.ts'\n`)
+		await cp(join(this.#root, 'packages/scripting/src/stdlib'), join(this.#directory, 'strata-lib'), { recursive: true, force: true })
 		await writeFile(
 			join(this.#directory, 'tsconfig.json'),
 			JSON.stringify({
 				compilerOptions: { target: 'ES2022', module: 'esnext', moduleResolution: 'bundler', allowImportingTsExtensions: true, strict: true, noEmit: true, skipLibCheck: true, noUncheckedIndexedAccess: true, types: [], paths: { strata: ['./strata.ts'] } },
-				include: ['*.ts', 'project/**/*.ts']
+				include: ['*.ts', 'project/**/*.ts', 'strata-lib/**/*.ts']
 			})
 		)
 		const client = LspClient.start(this.#root)

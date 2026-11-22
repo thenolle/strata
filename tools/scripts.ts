@@ -1,4 +1,4 @@
-import { copyFile, mkdir, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { dirname, join, posix, resolve } from 'node:path'
 
 const root = resolve(import.meta.dir, '..')
@@ -47,12 +47,14 @@ export async function checkScript(source: string): Promise<Checked> {
 	const directory = join(scratch, crypto.randomUUID())
 	await mkdir(directory, { recursive: true })
 	try {
-		await copyFile(join(root, 'packages/scripting/src/api.ts'), join(directory, 'strata.ts'))
+		const api = await readFile(join(root, 'packages/scripting/src/api.ts'), 'utf8')
+		await writeFile(join(directory, 'strata.ts'), `${api}\nexport * from './strata-lib/index.ts'\n`)
+		await cp(join(root, 'packages/scripting/src/stdlib'), join(directory, 'strata-lib'), { recursive: true })
 		await writeFile(join(directory, 'script.ts'), source)
 		await writeFile(
 			join(directory, 'tsconfig.json'),
 			JSON.stringify({
-				compilerOptions: { target: 'ES2022', module: 'esnext', moduleResolution: 'bundler', strict: true, noEmit: true, skipLibCheck: true, noUncheckedIndexedAccess: true, types: [], paths: { strata: ['./strata.ts'] } },
+				compilerOptions: { target: 'ES2022', module: 'esnext', moduleResolution: 'bundler', strict: true, noEmit: true, skipLibCheck: true, noUncheckedIndexedAccess: true, allowImportingTsExtensions: true, types: [], paths: { strata: ['./strata.ts'] } },
 				files: ['script.ts']
 			})
 		)
@@ -114,7 +116,7 @@ export async function bundleScripts(input: unknown): Promise<Compiled> {
 			return { ok: false, error: `${path}: ${describe(error)}` }
 		}
 		for (const item of runtime) {
-			if (!item.path.startsWith('./') && !item.path.startsWith('../')) return { ok: false, error: `${path}: Scripts can import only other scripts. Use "import type" for types.` }
+			if (!item.path.startsWith('./') && !item.path.startsWith('../') && item.path !== 'strata') return { ok: false, error: `${path}: Scripts can import only other scripts and "strata". Use "import type" for types.` }
 		}
 		for (const item of imports) {
 			if (item.kind === 'dynamic-import' || item.kind === 'require-call') return { ok: false, error: `${path}: Scripts cannot load modules dynamically` }
@@ -133,6 +135,9 @@ export async function bundleScripts(input: unknown): Promise<Compiled> {
 			await mkdir(dirname(disk), { recursive: true })
 			await writeFile(disk, files.get(path) ?? '')
 		}
+		await mkdir(join(directory, 'node_modules'), { recursive: true })
+		await cp(join(root, 'packages/scripting/src/stdlib'), join(directory, 'node_modules/strata'), { recursive: true })
+		await writeFile(join(directory, 'node_modules/strata/package.json'), JSON.stringify({ name: 'strata', type: 'module', main: 'index.ts' }))
 		const result = await Bun.build({ entrypoints: [join(directory, 'src', entry)], target: 'browser', format: 'esm', minify: false })
 		if (!result.success) return { ok: false, error: result.logs.map(String).join('\n') }
 		const code = (await result.outputs[0]?.text()) ?? ''

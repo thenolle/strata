@@ -2,6 +2,7 @@ import { createGuid, ok, type Guid, type Result } from '@strata/core'
 import { Project, guard } from '@strata/project'
 import { OpfsStorage } from '@strata/storage-opfs'
 import { packProject, unpackProject } from './archive.ts'
+import { isSealed, seal, unseal } from './seal.ts'
 
 const OPENED_KEY = 'strata.opened'
 
@@ -132,21 +133,23 @@ export function duplicateProject(storageName: string): Promise<Result<ProjectSum
 	})
 }
 
-export function exportProject(storageName: string): Promise<Result<ProjectArchive>> {
+export function exportProject(storageName: string, password: string): Promise<Result<ProjectArchive>> {
 	return guard<ProjectArchive>(async () => {
 		const storage = await OpfsStorage.open(storageName)
 		const opened = await Project.open(storage)
 		if (!opened.ok) return opened
 		const packed = await packProject(storage)
 		if (!packed.ok) return packed
-		return ok({ fileName: `${slug(opened.value.name)}.strata.zip`, bytes: packed.value })
+		return ok({ fileName: `${slug(opened.value.name)}.strata`, bytes: await seal(packed.value, password) })
 	})
 }
 
-export function importProject(bytes: Uint8Array): Promise<Result<ProjectSummary>> {
+export function importProject(bytes: Uint8Array, password = ''): Promise<Result<ProjectSummary>> {
 	return guard<ProjectSummary>(async () => {
+		const plain = isSealed(bytes) ? await unseal(bytes, password) : ok(bytes)
+		if (!plain.ok) return plain
 		const storageName = `import-${createGuid().slice(0, 8)}`
-		const imported = await unpackProject(bytes, await OpfsStorage.open(storageName))
+		const imported = await unpackProject(plain.value, await OpfsStorage.open(storageName))
 		if (!imported.ok) {
 			await OpfsStorage.destroy(storageName)
 			return imported
