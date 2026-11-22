@@ -392,6 +392,21 @@ export class EditorSession implements Disposable {
 		this.#announce('assets')
 	}
 
+	/**
+	 * How many components in the scene refer to an asset, so deleting it can warn first.
+	 */
+	assetUsage(id: string): number {
+		let count = 0
+		for (const name of ['sprite', 'audio', 'script']) {
+			const definition = this.registry.get(name)
+			if (definition === undefined) continue
+			for (const entity of this.world.query(definition)) {
+				if ((this.world.get(entity, definition) as unknown as Record<string, unknown> | undefined)?.['asset'] === id) count++
+			}
+		}
+		return count
+	}
+
 	componentValue(entity: Entity, definition: RegisteredComponent, field: string): unknown {
 		return (this.world.get(entity, definition) as unknown as Record<string, unknown> | undefined)?.[field]
 	}

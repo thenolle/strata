@@ -19,7 +19,7 @@ const ALLOWED_RUNTIME = [/^@gambrel\//, /^@strata\//]
 const ALLOWED_IMPORTS = [/^bun$/, /^bun:/, /^node:/, /^@gambrel\//]
 const SERVER_ONLY = [/^bun$/, /^bun:/, /^node:/, /^@gambrel\/(core|bun|ssr|compiler)$/, /\.server(\.[cm]?[jt]sx?)?$/]
 const DEPENDENCY_FIELDS = ['dependencies', 'peerDependencies', 'optionalDependencies'] as const
-const IMPORT_PATTERN = /(?:from|import)\s*\(?\s*['"]([^'"]+)['"]/g
+const IMPORT_PATTERN = /(?:^\s*(?:import|export)\b[^'";]*?\bfrom\s*|^\s*import\s*|\bimport\s*\(\s*)['"]([^'"]+)['"]/gm
 const root = resolve(import.meta.dir, '..')
 
 function normalize(path: string): string {

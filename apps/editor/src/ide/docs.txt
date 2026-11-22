@@ -1,0 +1,64 @@
+# Writing scripts
+
+A script is a TypeScript file that exports a class. Add the `script` component to an entity, pick the file, and the game creates one instance of the class for that entity.
+
+Every method receives a `ScriptContext`. Hover over anything in the editor to see its documentation, and press Ctrl+Space for suggestions.
+
+## Hooks
+
+- `onStart(ctx)` runs once, before the first update.
+- `onUpdate(ctx)` runs on every fixed step, 60 times a second.
+
+If a script throws, it is switched off and the error is shown while playing. The rest of the game keeps running.
+
+## The context
+
+- `ctx.get('transform')` gives the live data of a component, or undefined.
+- `ctx.setPosition(x, y)` moves this entity.
+- `ctx.input.isDown('KeyA')` and `ctx.input.axis('ArrowLeft', 'ArrowRight')` read the keyboard.
+- `ctx.find('Player')` finds another entity by name, and `ctx.getOf(id, 'transform')` reads its components.
+- `ctx.dt` is the step length in seconds. Multiply speeds by it.
+- `ctx.log(...)` prints in the log while playing.
+
+## Example: move with the keys
+
+```ts
+export default class Mover implements Script {
+	onUpdate(ctx: ScriptContext): void {
+		const transform = ctx.get('transform')
+		if (transform === undefined) return
+		const x = ctx.input.axis('ArrowLeft', 'ArrowRight')
+		const y = ctx.input.axis('ArrowDown', 'ArrowUp')
+		ctx.setPosition(Number(transform['x']) + x * 120 * ctx.dt, Number(transform['y']) + y * 120 * ctx.dt)
+	}
+}
+```
+
+## Example: follow another entity
+
+```ts
+export default class Follower implements Script {
+	onUpdate(ctx: ScriptContext): void {
+		const target = ctx.find('Player')
+		const goal = target === undefined ? undefined : ctx.getOf(target, 'transform')
+		const own = ctx.get('transform')
+		if (goal === undefined || own === undefined) return
+		const speed = 60 * ctx.dt
+		ctx.setPosition(Number(own['x']) + Math.sign(Number(goal['x']) - Number(own['x'])) * speed, Number(own['y']) + Math.sign(Number(goal['y']) - Number(own['y'])) * speed)
+	}
+}
+```
+
+## Example: a timer
+
+```ts
+export default class Blinker implements Script {
+	private next = 1
+
+	onUpdate(ctx: ScriptContext): void {
+		if (ctx.time < this.next) return
+		this.next += 1
+		ctx.log('One second passed at', ctx.time.toFixed(1))
+	}
+}
+```

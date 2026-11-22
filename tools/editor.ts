@@ -6,8 +6,10 @@ import { createApp, html, text } from '@gambrel/core'
 import { renderToString } from '@gambrel/view'
 import { Shell } from '../apps/editor/src/shell.tsx'
 import { checkScript, compileScript } from './scripts.ts'
+import { Ide } from './ide.ts'
 
 const root = resolve(import.meta.dir, '..')
+const ide = new Ide(root)
 const editor = join(root, 'apps/editor')
 const assets = join(root, '.cache/editor')
 const port = Number(Bun.env['PORT'] ?? 3220)
@@ -98,6 +100,16 @@ const app = createApp({ development: true })
 	.post('/api/check', async (ctx) => {
 		if (ctx.request.headers.get('origin') !== ctx.url.origin) return reply({ ok: false, output: 'Cross-origin requests are refused' }, 403)
 		return reply(await checkScript(await ctx.request.text()))
+	})
+	.post('/api/ide/:action', async (ctx) => {
+		if (ctx.request.headers.get('origin') !== ctx.url.origin) return reply({ ok: false, error: 'Cross-origin requests are refused' }, 403)
+		let body: unknown
+		try {
+			body = JSON.parse(await ctx.request.text())
+		} catch {
+			return reply({ ok: false, error: 'Invalid JSON' }, 400)
+		}
+		return reply(await ide.handle(ctx.params.action, body))
 	})
 	.get('/play/frame.html', () => html(FRAME_HTML, { headers: { 'cache-control': 'no-store', 'content-security-policy': FRAME_POLICY } }))
 	.get('/', async () => html(`<!doctype html>${await renderToString(Shell())}`, { headers: { 'cache-control': 'no-store' } }))

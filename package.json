@@ -12,6 +12,7 @@
     "playground": "bun tools/playground.ts",
     "editor": "bun tools/editor.ts",
     "merge": "bun tools/merge-pr.ts",
+    "ide:check": "bun tools/ide-check.ts",
     "hooks": "git config core.hooksPath .githooks",
     "lint:commits": "bun tools/lint-commit.ts --range origin/master..HEAD"
   },
