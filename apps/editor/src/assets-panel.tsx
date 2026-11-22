@@ -52,7 +52,7 @@ function Tile(props: { readonly session: EditorSession; readonly asset: Asset })
 				})
 			}}
 		>
-			{asset.kind === 'image' ? <img alt="" draggable="false" /> : <span class="tile-kind">WAV</span>}
+			{asset.kind === 'image' ? <img alt="" draggable="false" /> : <span class="tile-kind">{asset.kind === 'audio' ? 'WAV' : 'TS'}</span>}
 			<span class="tile-name">{asset.name}</span>
 		</li>
 	)
@@ -81,11 +81,11 @@ export function AssetsPanel(props: { readonly session: EditorSession; readonly o
 		<aside class="panel assets" aria-label="Assets">
 			<div class="panel-actions">
 				<Button size="sm" onClick={() => picker?.click()}>
-					Import PNG or WAV
+					Import PNG, WAV or TS
 				</Button>
 				<input
 					type="file"
-					accept=".png,.wav,image/png,audio/wav"
+					accept=".png,.wav,.ts,image/png,audio/wav"
 					multiple
 					hidden
 					ref={(element: Element) => {

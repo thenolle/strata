@@ -23,8 +23,11 @@ function checkerboard(): RawImage {
 }
 
 function describeAsset(record: AssetRecord): string {
-	const detail = record.kind === 'image' ? `${record.image.width}x${record.image.height}` : `${record.audio.durationSeconds.toFixed(2)}s ${record.audio.sampleRate}Hz`
-	return `  ${record.name} (${record.kind}, ${detail})`
+	switch (record.kind) {
+		case 'image': return `  ${record.name} (${record.kind}, ${record.image.width}x${record.image.height})`
+		case 'audio': return `  ${record.name} (${record.kind}, ${record.audio.durationSeconds.toFixed(2)}s ${record.audio.sampleRate}Hz)`
+		case 'script': return `  ${record.name} (${record.kind}, ${record.script.lines} lines)`
+	}
 }
 
 const canvas = document.createElement('canvas')

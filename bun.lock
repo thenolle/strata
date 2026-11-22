@@ -79,6 +79,7 @@
         "@strata/core": "workspace:*",
         "@strata/physics": "workspace:*",
         "@strata/scene": "workspace:*",
+        "@strata/scripting": "workspace:*",
       },
     },
     "packages/input": {
@@ -148,6 +149,13 @@
         "@strata/math": "workspace:*",
       },
     },
+    "packages/scripting": {
+      "name": "@strata/scripting",
+      "version": "0.0.0",
+      "dependencies": {
+        "@strata/core": "workspace:*",
+      },
+    },
     "packages/storage-opfs": {
       "name": "@strata/storage-opfs",
       "version": "0.0.0",
@@ -201,6 +209,8 @@
     "@strata/runtime": ["@strata/runtime@workspace:packages/runtime"],
 
     "@strata/scene": ["@strata/scene@workspace:packages/scene"],
+
+    "@strata/scripting": ["@strata/scripting@workspace:packages/scripting"],
 
     "@strata/storage-opfs": ["@strata/storage-opfs@workspace:packages/storage-opfs"],
 
