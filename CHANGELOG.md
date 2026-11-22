@@ -30,3 +30,5 @@
 - Gameplay package: player controller. Runtime package: plays a scene at a fixed timestep. Editor: Play mode (F5), generic component inspector, Add Player, Platform and Camera.
 - Runtime: Play draws every entity, reports errors and a status line in the Play bar.
 - Editor: move, rotate and scale gizmos (W, E, R) and copy, cut and paste.
+- Editor: Make player and Make solid presets, audio component with an asset picker, checkbox fields.
+- Runtime: audio playback, camera follow with smoothing, player and body counts in the Play bar; Play now moves focus out of text fields.

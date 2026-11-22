@@ -128,6 +128,12 @@ function ComponentSection(props: { readonly session: EditorSession; readonly ent
 				</Button>
 			</div>
 			{Object.entries(definition.schema).map(([field, kind]) => {
+				if (kind === 'bool') {
+					return <BoolField label={field} revision={revision} read={() => session.componentValue(entity, definition, field) === true} write={(value) => session.setField(entity, definition, field, value)} />
+				}
+				if (definition.name === 'audio' && field === 'asset') {
+					return <AssetField label={field} kind="audio" session={session} revision={revision} read={() => String(session.componentValue(entity, definition, field) ?? '')} write={(value) => session.setField(entity, definition, field, value)} />
+				}
 				if (kind === 'entity') return null
 				if (kind === 'string') {
 					const options = OPTIONS[`${definition.name}.${field}`]
@@ -149,6 +155,50 @@ function ComponentSection(props: { readonly session: EditorSession; readonly ent
 				)
 			})}
 		</div>
+	)
+}
+
+function BoolField(props: FieldProps & { readonly read: () => boolean; readonly write: (value: boolean) => void }): Child {
+	return (
+		<label class="field">
+			<span>{props.label}</span>
+			<input
+				type="checkbox"
+				ref={(element: Element) => {
+					const input = element as HTMLInputElement
+					effect(() => {
+						props.revision()
+						input.checked = props.read()
+					})
+					const commit = (): void => props.write(input.checked)
+					input.addEventListener('change', commit)
+					onCleanup(() => input.removeEventListener('change', commit))
+				}}
+			/>
+		</label>
+	)
+}
+
+function AssetField(props: FieldProps & { readonly session: EditorSession; readonly kind: 'image' | 'audio'; readonly read: () => string; readonly write: (value: string) => void }): Child {
+	return (
+		<label class="field">
+			<span>{props.label}</span>
+			<select
+				ref={(element: Element) => {
+					const select = element as HTMLSelectElement
+					effect(() => {
+						props.revision()
+						if (document.activeElement === select) return
+						const assets = props.session.project.assets.list().filter((asset) => asset.kind === props.kind)
+						select.replaceChildren(new Option('(none)', ''), ...assets.map((asset) => new Option(asset.name, asset.id)))
+						select.value = props.read()
+					})
+					const commit = (): void => props.write(select.value)
+					select.addEventListener('change', commit)
+					onCleanup(() => select.removeEventListener('change', commit))
+				}}
+			></select>
+		</label>
 	)
 }
 
@@ -187,6 +237,7 @@ export function Inspector(props: {
 	readonly session: EditorSession
 	readonly selected: () => Entity | undefined
 	readonly revision: () => number
+	readonly run: (command: string) => void
 }): Child {
 	const presence = signal('')
 	return (
@@ -226,6 +277,14 @@ export function Inspector(props: {
 										.map((definition) => (
 											<ComponentSection session={session} entity={entity} definition={definition} revision={revision} />
 										))}
+									<div class="panel-actions">
+										<Button size="sm" variant="outline" onClick={() => props.run('entity.makePlayer')}>
+											Make player
+										</Button>
+										<Button size="sm" variant="outline" onClick={() => props.run('entity.makeSolid')}>
+											Make solid
+										</Button>
+									</div>
 									<AddComponent session={session} entity={entity} revision={revision} />
 								</div>
 							)

@@ -416,7 +416,37 @@ export class EditorSession implements Disposable {
 		this.#perform({ kind: 'component', label: `${present ? 'Add' : 'Remove'} ${definition.name}`, execute: () => apply(present), undo: () => apply(!present) })
 	}
 
-	setField(entity: Entity, definition: RegisteredComponent, field: string, value: number | string): void {
+	/**
+	 * Adds several components in one undoable step. Components the entity already has are left alone.
+	 */
+	addComponents(entity: Entity, parts: Readonly<Record<string, Readonly<Record<string, unknown>>>>): void {
+		const guid = this.#guidOf(entity)
+		if (guid === undefined) return
+		const added: { readonly definition: RegisteredComponent; readonly init: Readonly<Record<string, unknown>> }[] = []
+		for (const [name, init] of Object.entries(parts)) {
+			const definition = this.registry.get(name)
+			if (definition !== undefined && !this.world.has(entity, definition)) added.push({ definition, init })
+		}
+		if (added.length === 0) return
+		this.#perform({
+			kind: 'component',
+			label: 'Add components',
+			execute: () => {
+				const target = this.#resolve(guid)
+				if (target === undefined) return
+				for (const { definition, init } of added) {
+					if (!this.world.has(target, definition)) this.world.add(target, definition, init as Partial<ComponentData<FieldSchema>>)
+				}
+			},
+			undo: () => {
+				const target = this.#resolve(guid)
+				if (target === undefined) return
+				for (const { definition } of added) this.world.remove(target, definition)
+			}
+		})
+	}
+
+	setField(entity: Entity, definition: RegisteredComponent, field: string, value: number | string | boolean): void {
 		const guid = this.#guidOf(entity)
 		const data = this.world.get(entity, definition) as unknown as Record<string, unknown> | undefined
 		if (guid === undefined || data === undefined || !(field in definition.schema) || data[field] === value) return

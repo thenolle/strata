@@ -27,10 +27,15 @@ export const Sprite = defineComponent('sprite', { asset: 'string' }, { asset: ''
 /**
  * Marks the view through which the scene is shown while playing. Position comes from the entity; `zoom` scales the view.
  */
-export const Camera = defineComponent('camera', { zoom: 'f32' }, { zoom: 1 })
+export const Camera = defineComponent('camera', { zoom: 'f32', follow: 'string', smoothing: 'f32' }, { zoom: 1, follow: '', smoothing: 0 })
 
 export type TransformData = ComponentData<(typeof Transform)['schema']>
 
 export function createSceneRegistry(): ComponentRegistry {
-	return new ComponentRegistry().register(Name).register(Transform).register(Parent).register(Sprite).register(Camera)
+	return new ComponentRegistry()
+		.register(Name)
+		.register(Transform)
+		.register(Parent)
+		.register(Sprite)
+		.register(Camera)
 }

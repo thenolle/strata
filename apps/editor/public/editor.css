@@ -412,3 +412,10 @@ body {
   align-items: center;
   justify-content: space-between;
 }
+
+.field input[type='checkbox'] {
+  justify-self: start;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+}
