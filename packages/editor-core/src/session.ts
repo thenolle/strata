@@ -1,4 +1,4 @@
-import { Emitter, Identity, Logger, StrataError, World, assignIdentity, createGuid, nullSink, ok, restoreWorld, snapshotEntities, type ComponentData, type ComponentRegistry, type Disposable, type Entity, type FieldSchema, type Guid, type Result } from '@strata/core'
+import { Emitter, Identity, Logger, StrataError, World, assignIdentity, createGuid, err, nullSink, ok, restoreWorld, snapshotEntities, type ComponentData, type ComponentRegistry, type Disposable, type Entity, type FieldSchema, type Guid, type Result } from '@strata/core'
 import { Vec3, degToRad, radToDeg, trig, wrapAngle } from '@strata/math'
 import type { Project } from '@strata/project'
 import { Name, Parent, Transform, TransformSystem, loadScene, saveScene, Sprite, type TransformData } from '@strata/scene'
@@ -8,11 +8,12 @@ import { History, type UndoableCommand } from './history.ts'
 type Snapshot = Extract<ReturnType<typeof snapshotEntities>, { readonly ok: true }>['value']
 
 export const MAIN_SCENE = 'main'
+const PREFAB_FORMAT = 'strata.prefab'
 const MAX_NAME_LENGTH = 128
 const DUPLICATE_OFFSET = 16
 
 export type RegisteredComponent = ReturnType<ComponentRegistry['definitions']> extends Iterable<infer D> ? D : never
-export type ChangeKind = 'structure' | 'selection' | 'name' | 'transform' | 'sprite' | 'component' | 'assets' | 'saved'
+export type ChangeKind = 'structure' | 'selection' | 'name' | 'transform' | 'sprite' | 'component' | 'assets' | 'saved' | 'scene'
 
 export interface EntityRow {
 	readonly entity: Entity
@@ -57,8 +58,9 @@ export class EditorSession implements Disposable {
 	readonly changed = new Emitter<ChangeKind>()
 	readonly #logger: Logger
 	readonly #scratch = new Vec3()
-	readonly #history = new History()
+	#history = new History()
 	readonly #guids = new Map<Guid, Entity>()
+	#scene = MAIN_SCENE
 	#selected: Entity[] = []
 	#selectedSet = new Set<Entity>()
 	#rows: readonly EntityRow[] | undefined
@@ -72,9 +74,10 @@ export class EditorSession implements Disposable {
 	/**
 	 * Opens a session and loads the project's main scene when it exists.
 	 */
-	static async open(project: Project, logger: Logger = new Logger(nullSink, 'editor')): Promise<Result<EditorSession>> {
+	static async open(project: Project, logger: Logger = new Logger(nullSink, 'editor'), scene: string = MAIN_SCENE): Promise<Result<EditorSession>> {
 		const session = new EditorSession(project, logger)
-		const text = await project.loadScene(MAIN_SCENE)
+		session.#scene = scene
+		const text = await project.loadScene(scene)
 		if (text.ok) {
 			const loaded = loadScene(session.world, session.registry, text.value)
 			if (!loaded.ok) {
@@ -385,10 +388,20 @@ export class EditorSession implements Disposable {
 		return captured.ok ? JSON.stringify({ root, entities: captured.value.entities }) : undefined
 	}
 
+	/** Serializes an entity and its descendants as prefab text. The root forgets its parent, so an instance never attaches to one. */
+	prefabText(entity: Entity): string | undefined {
+		const text = this.copyEntity(entity)
+		if (text === undefined) return undefined
+		const data = JSON.parse(text) as { readonly root: string; readonly entities: { readonly id: string; readonly components: Record<string, unknown> }[] }
+		const root = data.entities.find((item) => item.id === data.root)
+		if (root !== undefined) delete root.components['parent']
+		return JSON.stringify({ format: PREFAB_FORMAT, root: data.root, entities: data.entities })
+	}
+
 	/**
 	 * Inserts entities produced by `copyEntity` under new ids, offset slightly, and selects the copy. Returns its root.
 	 */
-	paste(text: string): Entity | undefined {
+	paste(text: string, options: { readonly at?: { readonly x: number; readonly y: number }; readonly label?: boolean } = {}): Entity | undefined {
 		let parsed: unknown
 		try {
 			parsed = JSON.parse(text)
@@ -423,10 +436,10 @@ export class EditorSession implements Disposable {
 					const position = components['transform']
 					const label = components['name']
 					if (position !== undefined) {
-						position['x'] = Number(position['x']) + DUPLICATE_OFFSET
-						position['y'] = Number(position['y']) + DUPLICATE_OFFSET
+						position['x'] = options.at === undefined ? Number(position['x']) + DUPLICATE_OFFSET : options.at.x
+						position['y'] = options.at === undefined ? Number(position['y']) + DUPLICATE_OFFSET : options.at.y
 					}
-					if (label !== undefined && alongsideOriginal) label['value'] = `${String(label['value'])} copy`.slice(0, MAX_NAME_LENGTH)
+					if (label !== undefined && alongsideOriginal && options.label !== false) label['value'] = `${String(label['value'])} copy`.slice(0, MAX_NAME_LENGTH)
 				}
 				return { id: fresh.get(item.id) as Guid, components }
 			})
@@ -662,6 +675,95 @@ export class EditorSession implements Disposable {
 		return true
 	}
 
+	/** The name of the open scene. */
+	get scene(): string {
+		return this.#scene
+	}
+
+	/** Every scene in the project, including the open one even when it has never been saved. */
+	async scenes(): Promise<string[]> {
+		const listed = await this.project.listScenes()
+		const names = new Set(listed.ok ? listed.value : [])
+		names.add(this.#scene)
+		return [...names].sort((a, b) => a.localeCompare(b))
+	}
+
+	/** Creates an empty scene without opening it. */
+	async newScene(name: string): Promise<Result<void>> {
+		const existing = await this.project.loadScene(name)
+		if (existing.ok) return err(new StrataError('conflict', `A scene named "${name}" already exists`))
+		if (existing.error.code !== 'not-found') return existing
+		const empty = saveScene(new World(), this.registry)
+		if (!empty.ok) return empty
+		return this.project.saveScene(name, empty.value)
+	}
+
+	/**
+	 * Opens another scene in this session. Unsaved changes are discarded, so ask first. The scene is checked before anything is cleared.
+	 */
+	async switchScene(name: string): Promise<Result<void>> {
+		const text = await this.project.loadScene(name)
+		if (!text.ok && text.error.code !== 'not-found') return text
+		if (text.ok) {
+			const probe = new World()
+			const checked = loadScene(probe, this.registry, text.value)
+			probe.dispose()
+			if (!checked.ok) return checked
+		}
+		for (const entity of [...this.world.query(Identity)]) {
+			if (this.world.isAlive(entity) && this.world.get(entity, Parent) === undefined) this.transforms.despawnTree(entity)
+		}
+		this.#guids.clear()
+		this.#history = new History()
+		this.#rows = undefined
+		this.#assign([])
+		this.#scene = name
+		if (text.ok) {
+			const loaded = loadScene(this.world, this.registry, text.value)
+			if (!loaded.ok) return loaded
+			for (const [guid, entity] of loaded.value) this.#guids.set(guid, entity)
+		}
+		this.transforms.update()
+		this.#announce('scene')
+		this.#announce('structure')
+		this.#announce('selection')
+		return ok(undefined)
+	}
+
+	async deleteScene(name: string): Promise<Result<void>> {
+		if (name === this.#scene) return err(new StrataError('invalid-argument', 'Switch to another scene before deleting this one'))
+		const removed = await this.project.deleteScene(name)
+		if (!removed.ok) return removed
+		this.#announce('scene')
+		return ok(undefined)
+	}
+
+	/** Renames a scene. Renaming a scene that was never saved saves it under the new name. */
+	async renameScene(name: string, next: string): Promise<Result<void>> {
+		if (name === next) return ok(undefined)
+		const clash = await this.project.loadScene(next)
+		if (clash.ok) return err(new StrataError('conflict', `A scene named "${next}" already exists`))
+		if (clash.error.code !== 'not-found') return clash
+		const text = await this.project.loadScene(name)
+		if (text.ok) {
+			const saved = await this.project.saveScene(next, text.value)
+			if (!saved.ok) return saved
+			const removed = await this.project.deleteScene(name)
+			if (!removed.ok) return removed
+		} else if (text.error.code === 'not-found' && name === this.#scene) {
+			const current = saveScene(this.world, this.registry)
+			if (!current.ok) return current
+			const saved = await this.project.saveScene(next, current.value)
+			if (!saved.ok) return saved
+			this.#history.markClean()
+		} else {
+			return text
+		}
+		if (name === this.#scene) this.#scene = next
+		this.#announce('scene')
+		return ok(undefined)
+	}
+
 	/**
 	 * Entities in outline order: roots first by name, each followed by its children. Cached until the structure or a name changes.
 	 */
@@ -713,7 +815,7 @@ export class EditorSession implements Disposable {
 	async save(): Promise<Result<void>> {
 		const text = saveScene(this.world, this.registry)
 		if (!text.ok) return text
-		const written = await this.project.saveScene(MAIN_SCENE, text.value)
+		const written = await this.project.saveScene(this.#scene, text.value)
 		if (written.ok) {
 			this.#history.markClean()
 			this.#announce('saved')

@@ -1573,3 +1573,13 @@ body {
   color: #ffd479;
   font-size: 12px;
 }
+
+.scene-select {
+  margin-left: 12px;
+  padding: 3px 8px;
+  border: 1px solid #3a3f47;
+  border-radius: 4px;
+  background: #14161a;
+  color: inherit;
+  font: inherit;
+}

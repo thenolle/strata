@@ -4,6 +4,10 @@ import { expandSnippet } from '../apps/editor/src/ide/snippets.ts'
 import { simulateScript } from '../packages/scripting/src/index.ts'
 import { EditorSession } from '../packages/editor-core/src/index.ts'
 import { MemoryStorage, Project } from '../packages/project/src/index.ts'
+import { World } from '../packages/core/src/index.ts'
+import { Collider } from '../packages/physics/src/index.ts'
+import { isDrawable } from '../packages/runtime/src/visibility.ts'
+import { Camera } from '../packages/scene/src/index.ts'
 import { bundleScripts } from './scripts.ts'
 
 console.log('fuzzy', fuzzyScore('sp', 'setPosition'), (fuzzyScore('sp', 'spawn') ?? 0) > (fuzzyScore('sp', 'setPosition') ?? 0), fuzzyScore('xyz', 'setPosition'))
@@ -56,3 +60,34 @@ console.log('undo group', session.getTransform(a)?.x, session.getTransform(b)?.x
 console.log('delete', session.deleteEntities([a, b, c]), session.rows().length)
 session.undo()
 console.log('restore', session.rows().length, session.selected.length)
+
+const lens = new World()
+const camera = lens.spawn()
+lens.add(camera, Camera, {})
+const player = lens.spawn()
+lens.add(player, Camera, {})
+lens.add(player, Collider, {})
+console.log('camera', isDrawable(lens, camera), isDrawable(lens, player))
+
+const project2Result = await Project.create(new MemoryStorage(), 'Scenes')
+if (!project2Result.ok) throw project2Result.error
+const project2 = project2Result.value
+const world2Result = await EditorSession.open(project2)
+if (!world2Result.ok) throw world2Result.error
+const world2 = world2Result.value
+const hero = world2.createEntity({ name: 'Hero', x: 5 })
+world2.createEntity({ name: 'Cape', parent: hero })
+console.log('scene', world2.scene, (await world2.scenes()).join(','))
+const prefab = world2.prefabText(hero) ?? ''
+console.log('prefab', JSON.parse(prefab).format, JSON.parse(prefab).entities.length)
+await world2.save()
+console.log('new', (await world2.newScene('Level 2')).ok, (await world2.newScene('Level 2')).ok)
+console.log('switch', (await world2.switchScene('Level 2')).ok, world2.scene, world2.rows().length, world2.dirty)
+const placed = world2.paste(prefab, { at: { x: 40, y: 50 }, label: false })
+console.log('paste', world2.rows().length, placed === undefined ? '' : world2.nameOf(placed), placed === undefined ? '' : world2.getTransform(placed)?.x, placed === undefined ? '' : world2.getTransform(placed)?.y)
+await world2.save()
+console.log('back', (await world2.switchScene('main')).ok, world2.rows().length)
+console.log('delete', (await world2.deleteScene('Level 2')).ok, (await world2.scenes()).join(','))
+const asset = await project2.assets.importAsset('Hero.prefab', new TextEncoder().encode(prefab), 'Prefabs')
+const bad = await project2.assets.importAsset('bad.prefab', new TextEncoder().encode('{}'))
+console.log('asset', asset.ok ? asset.value.kind : 'failed', bad.ok)

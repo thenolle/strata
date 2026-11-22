@@ -41,6 +41,11 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 	const ide = signal(false)
 	const ideRequest = signal<{ readonly asset: Guid; readonly n: number } | undefined>(undefined)
 	const reveal = signal<string | undefined>(undefined)
+	const scenes = signal<readonly string[]>([session.scene])
+	const refreshScenes = (): void => {
+		void session.scenes().then((names) => scenes.set(names))
+	}
+	refreshScenes()
 	let rootElement: HTMLElement | undefined
 	let anchor: Entity | undefined
 	const layout: Layout = loadLayout()
@@ -173,6 +178,7 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 				const subscription = session.changed.subscribe((kind) => {
 					fieldRevision.update((value) => value + 1)
 					if (kind !== 'transform') outlineRevision.update((value) => value + 1)
+					if (kind === 'scene' || kind === 'saved') refreshScenes()
 					selected.set(session.selection)
 				})
 				const contextSubscription = studio.contexts.changed.subscribe((name) => {
@@ -225,6 +231,24 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 		>
 			<header class="workspace-bar">
 				<strong>{session.project.name}</strong>
+				{() => (
+					<select class="scene-select" title="Scene" aria-label="Scene" onChange={(event) => run('scene.switch', { name: (event.target as HTMLSelectElement).value })}>
+						{scenes().map((name) => (
+							<option value={name} selected={name === session.scene}>
+								{name}
+							</option>
+						))}
+					</select>
+				)}
+				<Button size="sm" variant="ghost" onClick={() => run('scene.new')}>
+					+ Scene
+				</Button>
+				<Button size="sm" variant="ghost" onClick={() => run('scene.rename')}>
+					Rename
+				</Button>
+				<Button size="sm" variant="ghost" onClick={() => run('scene.delete')}>
+					Delete scene
+				</Button>
 				<span class="dirty">
 					{() => {
 						fieldRevision()
