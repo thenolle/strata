@@ -9,7 +9,7 @@ const call = template.split('\n').find((line) => line.includes('ctx.log('))?.tri
 
 async function until(read: () => Promise<DiagnosticOut[]>, done: (items: DiagnosticOut[]) => boolean, timeoutMs = 15_000): Promise<DiagnosticOut[]> {
 	const started = Date.now()
-	for (;;) {
+	for (; ;) {
 		const items = await read()
 		if (done(items) || Date.now() - started > timeoutMs) return items
 		await Bun.sleep(300)
@@ -34,6 +34,18 @@ try {
 	const hoverLine = hoverLines.findIndex((text) => text.includes('ctx.setPosition'))
 	const hover = await ide.hover('check', hoverLine, (hoverLines[hoverLine] ?? '').indexOf('setPosition') + 2)
 	console.log('hover', hover.includes('setPosition'))
+	const signed = template.replace(call, 'ctx.log(')
+	await ide.sync('check', signed)
+	const signedLines = signed.split('\n')
+	const signedLine = signedLines.findIndex((text) => text.trim() === 'ctx.log(')
+	const help = await ide.signature('check', signedLine, (signedLines[signedLine] ?? '').length)
+	console.log('signature', help?.label.includes('log') === true)
+	await ide.sync('check', template)
+	const defLine = hoverLines.findIndex((text) => text.includes('ctx.setPosition'))
+	const definition = await ide.definition('check', defLine, (hoverLines[defLine] ?? '').indexOf('setPosition') + 2)
+	console.log('definition', definition?.external?.file, definition?.external?.text.includes('setPosition'))
+	await ide.sync('check', 'const   x   =   1\n')
+	console.log('format', (await ide.format('check')).length > 0)
 } finally {
 	ide.dispose()
 }

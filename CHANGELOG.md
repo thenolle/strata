@@ -37,3 +37,4 @@
 - Editor: script IDE with syntax highlighting, live diagnostics, completion, hover documentation and a docs panel, powered by the native TypeScript language server.
 - Project: asset folders with create, rename, move and delete. Editor: file tree explorer and a script IDE workbench with tabs, docs and a status bar.
 - Editor: resizable panels with remembered sizes, SVG icon set and icon explorer, Rect tool for visual resizing, viewport toolbar and a 2D and 3D mode switch.
+- IDE: find and replace, go to line, auto-close brackets, comment toggle, move and duplicate lines, indent selections, bracket matching, go to definition, signature help, rename and format. Context menus now appear above the IDE.

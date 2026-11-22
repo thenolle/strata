@@ -1,6 +1,8 @@
 import { renderLines } from './highlight.ts'
-import type { Completion, Diagnostic, IdeClient } from './ide-client.ts'
+import type { Completion, Definition, Diagnostic, IdeClient, Signature, TextEdit } from './ide-client.ts'
 import { renderMarkdown } from './markdown.ts'
+import { applyTextEdits, autoClose, duplicateLines, findAll, findBracketMatch, indentLines, moveLines, toggleComment, type Edit } from './editing.ts'
+import { FindWidget, quickInput } from './find-widget.ts'
 
 const LINE_HEIGHT = 20
 const PADDING = 12
@@ -59,6 +61,20 @@ export class CodeEditor {
 	readonly #popup = document.createElement('ul')
 	readonly #tooltip = document.createElement('div')
 	readonly #options: CodeEditorOptions
+	readonly #signatureTip = document.createElement('div')
+	readonly #find = new FindWidget({
+		onChange: () => this.#runFind(true),
+		onStep: (direction) => this.#step(direction),
+		onReplace: () => this.#replaceCurrent(),
+		onReplaceAll: () => this.#replaceAll(),
+		onClose: () => this.#closeFind()
+	})
+	#matches: { readonly from: number; readonly to: number }[] = []
+	#current = -1
+	#marks: Diagnostic[] = []
+	#quick: (() => void) | undefined
+	#signatureOpen = false
+	#signatureTimer: ReturnType<typeof setTimeout> | undefined
 	#diagnostics: readonly Diagnostic[] = []
 	#diagnosticsKey = '[]'
 	#charWidth = 8
@@ -95,8 +111,10 @@ export class CodeEditor {
 		this.#popup.hidden = true
 		this.#tooltip.className = 'ide-tooltip'
 		this.#tooltip.hidden = true
-		this.#body.append(this.#highlight, this.#input, this.#popup, this.#tooltip)
 		this.element.append(this.#gutter, this.#body)
+		this.#signatureTip.className = 'ide-tooltip ide-signature'
+		this.#signatureTip.hidden = true
+		this.#body.append(this.#highlight, this.#input, this.#popup, this.#tooltip, this.#signatureTip, this.#find.element)
 		this.#input.addEventListener('input', this.#onInput)
 		this.#input.addEventListener('keydown', this.#onKeyDown)
 		this.#input.addEventListener('keyup', this.#reportCursor)
@@ -104,6 +122,7 @@ export class CodeEditor {
 		this.#input.addEventListener('focus', this.#reportCursor)
 		this.#input.addEventListener('scroll', this.#onScroll)
 		this.#input.addEventListener('blur', this.#onBlur)
+		this.#input.addEventListener('mousedown', this.#onMouseDown)
 		this.#body.addEventListener('mousemove', this.#onMouseMove)
 		this.#body.addEventListener('mouseleave', this.#hideTooltip)
 		this.#render()
@@ -141,7 +160,9 @@ export class CodeEditor {
 		clearTimeout(this.#changeTimer)
 		clearTimeout(this.#completeTimer)
 		clearTimeout(this.#hoverTimer)
+		clearTimeout(this.#signatureTimer)
 		clearInterval(this.#poll)
+		this.#quick?.()
 		void this.#options.client.close(this.#options.name).catch(() => undefined)
 		this.element.remove()
 	}
@@ -158,7 +179,7 @@ export class CodeEditor {
 
 	#render(): void {
 		const text = this.#input.value
-		this.#highlight.innerHTML = `${renderLines(text, this.#diagnostics)}\n`
+		this.#highlight.innerHTML = `${renderLines(text, [...this.#diagnostics, ...this.#marks])}\n`
 		const count = text.split('\n').length
 		if (count !== this.#lineCount) {
 			this.#lineCount = count
@@ -333,6 +354,7 @@ export class CodeEditor {
 	readonly #reportCursor = (): void => {
 		const at = this.#position()
 		this.#options.onCursor(at.line + 1, at.character + 1)
+		this.#updateMarks()
 	}
 
 	readonly #onInput = (): void => {
@@ -346,6 +368,11 @@ export class CodeEditor {
 			this.#completeTimer = setTimeout(() => void this.#complete(false), COMPLETE_DELAY_MS)
 		}
 		this.#reportCursor()
+		if (this.#find.isOpen) this.#runFind(false)
+		if (this.#signatureOpen) {
+			clearTimeout(this.#signatureTimer)
+			this.#signatureTimer = setTimeout(() => void this.#signature(), 120)
+		}
 	}
 
 	readonly #onScroll = (): void => {
@@ -393,23 +420,294 @@ export class CodeEditor {
 			}
 		}
 		this.#hideTooltip()
+		if (!this.#signatureOpen) this.#signatureTip.hidden = true
 		const command = event.ctrlKey || event.metaKey
-		if (command && event.key === ' ') {
+		const key = event.key
+		const lower = key.toLowerCase()
+		const value = this.#input.value
+		const start = this.#input.selectionStart
+		const end = this.#input.selectionEnd
+		if (command && key === ' ') {
 			event.preventDefault()
 			void this.#complete(true)
-		} else if (command && event.key.toLowerCase() === 's') {
+		} else if (command && lower === 's') {
 			event.preventDefault()
 			event.stopPropagation()
 			this.#options.onSave()
-		} else if (event.key === 'Tab' && !event.shiftKey) {
+		} else if (command && !event.shiftKey && lower === 'f') {
 			event.preventDefault()
-			this.#insert('\t')
-		} else if (event.key === 'Enter' && !command && !event.shiftKey) {
+			this.#openFind(false)
+		} else if (command && lower === 'h') {
+			event.preventDefault()
+			this.#openFind(true)
+		} else if (command && lower === 'g') {
+			event.preventDefault()
+			this.#gotoLine()
+		} else if (command && key === '/') {
+			event.preventDefault()
+			this.#apply(toggleComment(value, start, end))
+		} else if (event.altKey && !command && (key === 'ArrowUp' || key === 'ArrowDown')) {
+			event.preventDefault()
+			const direction = key === 'ArrowDown' ? 1 : -1
+			const edit = event.shiftKey ? duplicateLines(value, start, end, direction) : moveLines(value, start, end, direction)
+			if (edit !== undefined) this.#apply(edit)
+		} else if (event.altKey && event.shiftKey && lower === 'f') {
+			event.preventDefault()
+			void this.#format()
+		} else if (key === 'F12') {
+			event.preventDefault()
+			const at = this.#position()
+			void this.#definition(at.line, at.character)
+		} else if (key === 'F2') {
+			event.preventDefault()
+			event.stopPropagation()
+			this.#rename()
+		} else if (key === 'F3') {
+			event.preventDefault()
+			this.#step(event.shiftKey ? -1 : 1)
+		} else if (key === 'Tab') {
+			event.preventDefault()
+			if (event.shiftKey || value.slice(start, end).includes('\n')) this.#apply(indentLines(value, start, end, event.shiftKey))
+			else this.#insert('\t')
+		} else if (key === 'Enter' && !command && !event.shiftKey) {
 			event.preventDefault()
 			this.#insertNewline()
-		} else if (event.key === 'Escape') {
+		} else if (key === 'Escape') {
 			event.stopPropagation()
-			this.#options.onClose()
+			if (this.#find.isOpen) this.#closeFind()
+			else if (this.#signatureOpen) this.#hideSignature()
+			else this.#options.onClose()
+		} else if (key.length === 1 && !command && !event.altKey) {
+			const edit = autoClose(value, start, end, key)
+			if (edit !== undefined) {
+				event.preventDefault()
+				this.#apply(edit)
+			}
+			if (key === '(' || key === ',') setTimeout(() => void this.#signature(), 30)
+			if (key === ')') this.#hideSignature()
 		}
+	}
+
+	#lineColumn(offset: number): { readonly line: number; readonly character: number } {
+		const before = this.#input.value.slice(0, offset)
+		return { line: before.split('\n').length - 1, character: offset - (before.lastIndexOf('\n') + 1) }
+	}
+
+	#apply(edit: Edit): void {
+		this.#input.focus()
+		this.#input.setSelectionRange(edit.from, edit.to)
+		this.#insert(edit.insert)
+		this.#input.setSelectionRange(edit.selectionStart, edit.selectionEnd)
+		this.#updateMarks()
+	}
+
+	#replaceWhole(text: string): void {
+		const caret = this.#input.selectionStart
+		this.#input.focus()
+		this.#input.select()
+		this.#insert(text)
+		const position = Math.min(caret, text.length)
+		this.#input.setSelectionRange(position, position)
+	}
+
+	#select(from: number, to: number): void {
+		this.#input.setSelectionRange(from, to)
+		const top = this.#lineColumn(from).line * LINE_HEIGHT
+		const view = this.#input.clientHeight
+		if (top < this.#input.scrollTop + 20 || top > this.#input.scrollTop + view - 60) this.#input.scrollTop = Math.max(0, top - view / 2)
+	}
+
+	#updateMarks(): void {
+		const text = this.#input.value
+		const marks: Diagnostic[] = []
+		const mark = (from: number, to: number, severity: number): void => {
+			const a = this.#lineColumn(from)
+			const b = this.#lineColumn(to)
+			marks.push({ line: a.line, character: a.character, endLine: b.line, endCharacter: b.character, severity, message: '' })
+		}
+		if (this.#find.isOpen) {
+			for (const [index, match] of this.#matches.slice(0, 500).entries()) mark(match.from, match.to, index === this.#current ? -2 : -1)
+		}
+		if (this.#input.selectionStart === this.#input.selectionEnd) {
+			const bracket = findBracketMatch(text, this.#input.selectionStart)
+			if (bracket !== undefined) {
+				mark(bracket.open, bracket.open + 1, 0)
+				mark(bracket.close, bracket.close + 1, 0)
+			}
+		}
+		this.#marks = marks
+		this.#render()
+	}
+
+	#openFind(replace: boolean): void {
+		const selection = this.#input.value.slice(this.#input.selectionStart, this.#input.selectionEnd)
+		this.#find.open(selection !== '' && !selection.includes('\n') ? selection : '', replace)
+		this.#runFind(true)
+	}
+
+	#closeFind(): void {
+		this.#find.close()
+		this.#matches = []
+		this.#current = -1
+		this.#updateMarks()
+		this.#input.focus()
+	}
+
+	#runFind(select: boolean): void {
+		const state = this.#find.state
+		this.#matches = findAll(this.#input.value, state.query, state.options)
+		const next = this.#matches.findIndex((match) => match.from >= this.#input.selectionStart)
+		this.#current = this.#matches.length === 0 ? -1 : next < 0 ? 0 : next
+		this.#find.setCount(this.#current, this.#matches.length)
+		const match = this.#matches[this.#current]
+		if (select && match !== undefined) this.#select(match.from, match.to)
+		this.#updateMarks()
+	}
+
+	#step(direction: 1 | -1): void {
+		const count = this.#matches.length
+		if (count === 0) return
+		this.#current = (this.#current + direction + count) % count
+		const match = this.#matches[this.#current]
+		if (match !== undefined) this.#select(match.from, match.to)
+		this.#find.setCount(this.#current, count)
+		this.#updateMarks()
+	}
+
+	#replaceCurrent(): void {
+		const match = this.#matches[this.#current]
+		if (match === undefined) return
+		this.#input.focus()
+		this.#input.setSelectionRange(match.from, match.to)
+		this.#insert(this.#find.state.replacement)
+		this.#runFind(true)
+	}
+
+	#replaceAll(): void {
+		if (this.#matches.length === 0) return
+		const value = this.#input.value
+		const replacement = this.#find.state.replacement
+		let result = ''
+		let cursor = 0
+		for (const match of this.#matches) {
+			result += value.slice(cursor, match.from) + replacement
+			cursor = match.to
+		}
+		this.#replaceWhole(result + value.slice(cursor))
+		this.#runFind(false)
+	}
+
+	#gotoLine(): void {
+		this.#quick?.()
+		this.#quick = quickInput(this.#body, {
+			placeholder: `Go to line (1 to ${this.#lineCount})`,
+			onSubmit: (value) => {
+				const line = Number.parseInt(value, 10)
+				if (Number.isFinite(line)) this.reveal(Math.max(0, Math.min(this.#lineCount, line) - 1), 0)
+			},
+			onClose: () => {
+				this.#quick = undefined
+				this.#input.focus()
+			}
+		})
+	}
+
+	#rename(): void {
+		const at = this.#position()
+		const word = at.lineText.slice(at.wordStart, at.character) + (/^[\w$]*/.exec(at.lineText.slice(at.character))?.[0] ?? '')
+		if (word === '') return
+		this.#quick?.()
+		this.#quick = quickInput(this.#body, {
+			placeholder: 'New name',
+			value: word,
+			onSubmit: (value) => void this.#doRename(at.line, at.character, value.trim()),
+			onClose: () => {
+				this.#quick = undefined
+				this.#input.focus()
+			}
+		})
+	}
+
+	async #doRename(line: number, character: number, newName: string): Promise<void> {
+		if (!/^[A-Za-z_$][\w$]*$/.test(newName)) return
+		await this.#send()
+		const edits = await this.#options.client.rename(this.#options.name, line, character, newName).catch((): readonly TextEdit[] => [])
+		if (edits.length > 0) this.#replaceWhole(applyTextEdits(this.#input.value, edits))
+	}
+
+	async #format(): Promise<void> {
+		await this.#send()
+		const edits = await this.#options.client.format(this.#options.name).catch((): readonly TextEdit[] => [])
+		if (edits.length === 0) return
+		const formatted = applyTextEdits(this.#input.value, edits)
+		if (formatted !== this.#input.value) this.#replaceWhole(formatted)
+	}
+
+	#hideSignature(): void {
+		this.#signatureOpen = false
+		this.#signatureTip.hidden = true
+	}
+
+	#placeTip(tip: HTMLElement, at: { readonly line: number; readonly lineText: string; readonly character: number }): void {
+		tip.hidden = false
+		const x = PADDING + visualColumn(at.lineText, at.character) * this.#charWidth - this.#input.scrollLeft
+		const height = tip.getBoundingClientRect().height
+		tip.style.left = `${Math.max(0, x)}px`
+		tip.style.top = `${Math.max(0, PADDING + at.line * LINE_HEIGHT - this.#input.scrollTop - height - 4)}px`
+	}
+
+	async #signature(): Promise<void> {
+		const at = this.#position()
+		await this.#send()
+		const help = await this.#options.client.signature(this.#options.name, at.line, at.character).catch((): Signature | undefined => undefined)
+		if (help === undefined) {
+			this.#hideSignature()
+			return
+		}
+		const label = document.createElement('div')
+		label.className = 'ide-signature-label'
+		const active = help.parameters[help.active] ?? ''
+		const index = active === '' ? -1 : help.label.indexOf(active)
+		if (index < 0) {
+			label.textContent = help.label
+		} else {
+			const bold = document.createElement('b')
+			bold.textContent = active
+			label.append(help.label.slice(0, index), bold, help.label.slice(index + active.length))
+		}
+		this.#signatureTip.replaceChildren(label)
+		if (help.documentation !== '') this.#signatureTip.append(renderMarkdown(help.documentation))
+		this.#signatureOpen = true
+		this.#placeTip(this.#signatureTip, at)
+	}
+
+	async #definition(line: number, character: number): Promise<void> {
+		await this.#send()
+		const result = await this.#options.client.definition(this.#options.name, line, character).catch((): Definition | undefined => undefined)
+		if (result === undefined) return
+		if (result.local !== undefined) {
+			this.reveal(result.local.line, result.local.character)
+			return
+		}
+		if (result.external === undefined) return
+		const title = document.createElement('div')
+		title.className = 'ide-tooltip-error'
+		title.textContent = `Defined in ${result.external.file}`
+		const code = document.createElement('pre')
+		code.textContent = result.external.text
+		this.#signatureOpen = false
+		this.#signatureTip.replaceChildren(title, code)
+		this.#placeTip(this.#signatureTip, this.#position())
+	}
+
+	readonly #onMouseDown = (event: MouseEvent): void => {
+		if (!event.ctrlKey && !event.metaKey) return
+		const rect = this.#input.getBoundingClientRect()
+		const line = Math.floor((event.clientY - rect.top + this.#input.scrollTop - PADDING) / LINE_HEIGHT)
+		const text = this.#input.value.split('\n')[line]
+		if (text === undefined) return
+		event.preventDefault()
+		const character = indexAtVisual(text, Math.floor((event.clientX - rect.left + this.#input.scrollLeft - PADDING) / this.#charWidth))
+		void this.#definition(line, character)
 	}
 }
