@@ -236,6 +236,79 @@ export class EditorSession implements Disposable {
 		return this.#guids.get(copyRoot)
 	}
 
+	/**
+ * Serializes an entity with its descendants as text that `paste` can insert again, in this or another scene.
+ */
+	copyEntity(entity: Entity): string | undefined {
+		const root = this.#guidOf(entity)
+		if (root === undefined || !this.#isPersistent(entity)) return undefined
+		const captured = snapshotEntities(this.world, this.registry, this.#subtree(entity))
+		return captured.ok ? JSON.stringify({ root, entities: captured.value.entities }) : undefined
+	}
+
+	/**
+	 * Inserts entities produced by `copyEntity` under new ids, offset slightly, and selects the copy. Returns its root.
+	 */
+	paste(text: string): Entity | undefined {
+		let parsed: unknown
+		try {
+			parsed = JSON.parse(text)
+		} catch {
+			return undefined
+		}
+		const data = parsed as { readonly root?: unknown; readonly entities?: unknown } | null
+		if (typeof data !== 'object' || data === null || typeof data.root !== 'string' || !Array.isArray(data.entities)) return undefined
+		const rootGuid = data.root
+		const items = (data.entities as unknown[]).filter(
+			(item): item is { id: string; components: Record<string, Record<string, unknown>> } =>
+				typeof item === 'object' && item !== null && typeof (item as { id?: unknown }).id === 'string' && typeof (item as { components?: unknown }).components === 'object' && (item as { components?: unknown }).components !== null
+		)
+		if (!items.some((item) => item.id === rootGuid)) return undefined
+		const fresh = new Map<string, Guid>(items.map((item): [string, Guid] => [item.id, createGuid()]))
+		const copyRoot = fresh.get(rootGuid) as Guid
+		const alongsideOriginal = this.#resolve(rootGuid as Guid) !== undefined
+		const snapshot = {
+			entities: items.map((item) => {
+				const components: Record<string, Record<string, unknown>> = {}
+				for (const [name, fields] of Object.entries(item.components)) {
+					const copy: Record<string, unknown> = { ...fields }
+					for (const [field, kind] of Object.entries(this.registry.get(name)?.schema ?? {})) {
+						const value = copy[field]
+						if (kind === 'entity' && typeof value === 'string') copy[field] = fresh.get(value) ?? value
+					}
+					const outsideParent = typeof copy['parent'] === 'string' ? copy['parent'] : undefined
+					if (name === 'parent' && item.id === rootGuid && outsideParent !== undefined && !fresh.has(outsideParent) && this.#resolve(outsideParent as Guid) === undefined) continue
+					components[name] = copy
+				}
+				if (item.id === rootGuid) {
+					const position = components['transform']
+					const label = components['name']
+					if (position !== undefined) {
+						position['x'] = Number(position['x']) + DUPLICATE_OFFSET
+						position['y'] = Number(position['y']) + DUPLICATE_OFFSET
+					}
+					if (label !== undefined && alongsideOriginal) label['value'] = `${String(label['value'])} copy`.slice(0, MAX_NAME_LENGTH)
+				}
+				return { id: fresh.get(item.id) as Guid, components }
+			})
+		}
+		this.#perform({
+			kind: 'structure',
+			label: 'Paste entity',
+			execute: () => {
+				const restored = restoreWorld(this.world, this.registry, snapshot)
+				if (!restored.ok) throw restored.error
+				for (const [guid, restoredEntity] of restored.value) this.#guids.set(guid, restoredEntity)
+				this.#selection = this.#guids.get(copyRoot)
+			},
+			undo: () => {
+				const target = this.#resolve(copyRoot)
+				if (target !== undefined) this.#remove(target)
+			}
+		})
+		return this.#guids.get(copyRoot)
+	}
+
 	nameOf(entity: Entity): string {
 		return this.world.get(entity, Name)?.value ?? 'Entity'
 	}

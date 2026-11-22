@@ -200,6 +200,10 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 						isGridVisible: () => studio.contexts.get('gridVisible') === true,
 						onContextMenu: (request) => openMenu({ menuId: 'viewport/context', x: request.x, y: request.y, args: request }),
 						onDropAsset: (drop) => run('asset.addToScene', drop),
+						getTool: () => {
+							const tool = studio.contexts.get('tool')
+							return tool === 'rotate' || tool === 'scale' ? tool : 'move'
+						},
 					})
 					onCleanup(stop)
 				}}

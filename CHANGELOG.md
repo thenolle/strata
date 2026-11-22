@@ -28,3 +28,5 @@
 - Editor: duplicate an entity with its descendants (Ctrl+D), undoable.
 - Physics package: 2D rigid bodies with box and circle colliders, friction and restitution.
 - Gameplay package: player controller. Runtime package: plays a scene at a fixed timestep. Editor: Play mode (F5), generic component inspector, Add Player, Platform and Camera.
+- Runtime: Play draws every entity, reports errors and a status line in the Play bar.
+- Editor: move, rotate and scale gizmos (W, E, R) and copy, cut and paste.

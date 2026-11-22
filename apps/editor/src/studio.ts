@@ -53,17 +53,55 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 	syncContext()
 	store.add(session.changed.subscribe(syncContext))
 
+	let clipboard: string | undefined
+	contexts.set('tool', 'move')
+	contexts.set('hasClipboard', false)
+	const copySelection = (): boolean => {
+		const entity = session.selection
+		const text = entity === undefined ? undefined : session.copyEntity(entity)
+		if (text === undefined) return false
+		clipboard = text
+		contexts.set('hasClipboard', true)
+		void navigator.clipboard?.writeText(text).catch(() => undefined)
+		return true
+	}
+
+	const imageAsset = (args: unknown): { readonly id: Guid; readonly name: string } => {
+		const id = assetArg(args)
+		const record = id === undefined ? undefined : session.project.assets.get(id as Guid)
+		if (record === undefined) throw new Error('Choose an asset in the Assets panel first')
+		if (record.kind !== 'image') throw new Error('Only images can be used as sprites')
+		return { id: record.id, name: record.name }
+	}
+
 	// Commands
 
 	const command = (id: string, title: string, category: string, run: (args?: unknown) => void | Promise<void>, when?: string): void => { store.add(commands.register({ id, title, category, ...(when === undefined ? {} : { when }), run })) }
 
 	command('workbench.action.showCommands', 'Show All Commands', 'View', hooks.openPalette)
 	command('workbench.action.showContextMenu', 'Show Context Menu', 'View', hooks.openContextMenu)
+
 	command('view.toggleGrid', 'Toggle Grid', 'View', () => contexts.set('gridVisible', contexts.get('gridVisible') !== true))
+
 	command('file.save', 'Save', 'File', hooks.save)
+
 	command('project.close', 'Close Project', 'File', hooks.close)
-	command('edit.undo', 'Undo', 'Edit', () => void session.undo(), 'canUndo')
-	command('edit.redo', 'Redo', 'Edit', () => void session.redo(), 'canRedo')
+
+	command('asset.addToScene', 'Add Asset to Scene', 'Asset', (args) => {
+		const asset = imageAsset(args)
+		session.createEntity({ name: asset.name.replace(/\.[^.]+$/, ''), asset: asset.id, ...(worldPoint(args) ?? {}) })
+	})
+	command('asset.assignToSelection', 'Assign Asset to Selected Entity', 'Asset', (args) => {
+		const asset = imageAsset(args)
+		const selected = session.selection
+		if (selected !== undefined) session.setSprite(selected, asset.id)
+	}, 'hasSelection')
+
+	command('play.start', 'Play Scene', 'Game', hooks.play)
+
+	command('entity.addPlayer', 'Add Player', 'Entity', () => void session.createEntity({ name: 'Player', y: 120, components: { body: {}, collider: {}, controller: {} } }))
+	command('entity.addPlatform', 'Add Platform', 'Entity', () => void session.createEntity({ name: 'Platform', y: -100, components: { body: { kind: 'static' }, collider: { width: 256, height: 32 } } }))
+	command('entity.addCamera', 'Add Camera', 'Entity', () => void session.createEntity({ name: 'Camera', components: { camera: {} } }))
 	command('entity.add', 'Add Entity', 'Entity', () => void session.createEntity({}))
 	command('entity.addAt', 'Add Entity Here', 'Entity', (args) => void session.createEntity(worldPoint(args) ?? {}))
 	command('entity.addChild', 'Add Child Entity', 'Entity', () => {
@@ -80,26 +118,20 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 		const selected = session.selection
 		if (selected !== undefined) session.duplicate(selected)
 	}, 'hasSelection')
-	const imageAsset = (args: unknown): { readonly id: Guid; readonly name: string } => {
-		const id = assetArg(args)
-		const record = id === undefined ? undefined : session.project.assets.get(id as Guid)
-		if (record === undefined) throw new Error('Choose an asset in the Assets panel first')
-		if (record.kind !== 'image') throw new Error('Only images can be used as sprites')
-		return { id: record.id, name: record.name }
-	}
-	command('asset.addToScene', 'Add Asset to Scene', 'Asset', (args) => {
-		const asset = imageAsset(args)
-		session.createEntity({ name: asset.name.replace(/\.[^.]+$/, ''), asset: asset.id, ...(worldPoint(args) ?? {}) })
-	})
-	command('asset.assignToSelection', 'Assign Asset to Selected Entity', 'Asset', (args) => {
-		const asset = imageAsset(args)
-		const selected = session.selection
-		if (selected !== undefined) session.setSprite(selected, asset.id)
+
+	command('tool.move', 'Move Tool', 'Tools', () => contexts.set('tool', 'move'))
+	command('tool.rotate', 'Rotate Tool', 'Tools', () => contexts.set('tool', 'rotate'))
+	command('tool.scale', 'Scale Tool', 'Tools', () => contexts.set('tool', 'scale'))
+
+	command('edit.copy', 'Copy', 'Edit', () => void copySelection(), 'hasSelection')
+	command('edit.cut', 'Cut', 'Edit', () => {
+		if (copySelection()) session.deleteSelected()
 	}, 'hasSelection')
-	command('play.start', 'Play Scene', 'Game', hooks.play)
-	command('entity.addPlayer', 'Add Player', 'Entity', () => void session.createEntity({ name: 'Player', y: 120, components: { body: {}, collider: {}, controller: {} } }))
-	command('entity.addPlatform', 'Add Platform', 'Entity', () => void session.createEntity({ name: 'Platform', y: -100, components: { body: { kind: 'static' }, collider: { width: 256, height: 32 } } }))
-	command('entity.addCamera', 'Add Camera', 'Entity', () => void session.createEntity({ name: 'Camera', components: { camera: {} } }))
+	command('edit.paste', 'Paste', 'Edit', () => {
+		if (clipboard !== undefined) session.paste(clipboard)
+	}, 'hasClipboard')
+	command('edit.undo', 'Undo', 'Edit', () => void session.undo(), 'canUndo')
+	command('edit.redo', 'Redo', 'Edit', () => void session.redo(), 'canRedo')
 
 	const added = keybindings.addAll([
 		{ keys: 'ctrl+shift+p', command: 'workbench.action.showCommands' },
@@ -115,6 +147,12 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 		{ keys: 'alt+shift+n', command: 'entity.addChild', when: 'hasSelection' },
 		{ keys: 'mod+d', command: 'entity.duplicate', when: 'hasSelection && !textInputFocus' },
 		{ keys: 'f5', command: 'play.start' },
+		{ keys: 'w', command: 'tool.move', when: '!textInputFocus' },
+		{ keys: 'e', command: 'tool.rotate', when: '!textInputFocus' },
+		{ keys: 'r', command: 'tool.scale', when: '!textInputFocus' },
+		{ keys: 'mod+c', command: 'edit.copy', when: 'hasSelection && !textInputFocus' },
+		{ keys: 'mod+x', command: 'edit.cut', when: 'hasSelection && !textInputFocus' },
+		{ keys: 'mod+v', command: 'edit.paste', when: 'hasClipboard && !textInputFocus' },
 	])
 	if (!added.ok) throw added.error
 
@@ -150,6 +188,12 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 
 	contribute('assets/context', { command: 'asset.addToScene', group: '1_create' })
 	contribute('assets/context', { command: 'asset.assignToSelection', group: '2_modify' })
+
+	for (const menu of ['outline/context', 'viewport/context']) {
+		contribute(menu, { command: 'edit.copy', group: '2_edit@1' })
+		contribute(menu, { command: 'edit.cut', group: '2_edit@2' })
+		contribute(menu, { command: 'edit.paste', group: '2_edit@3' })
+	}
 
 	return { contexts, commands, keybindings, menus, dispose: () => store.dispose() }
 }
