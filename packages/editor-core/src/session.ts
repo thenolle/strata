@@ -6,6 +6,7 @@ import { History, type UndoableCommand } from './history.ts'
 
 export const MAIN_SCENE = 'main'
 const MAX_NAME_LENGTH = 128
+const DUPLICATE_OFFSET = 16
 
 export type ChangeKind = 'structure' | 'selection' | 'name' | 'transform' | 'sprite' | 'assets' | 'saved'
 
@@ -175,6 +176,59 @@ export class EditorSession implements Disposable {
 
 	deleteSelected(): number {
 		return this.#selection === undefined ? 0 : this.deleteEntity(this.#selection)
+	}
+
+		/**
+	 * Copies an entity with its descendants, offset slightly, and selects the copy. Returns the copy's root.
+	 */
+	duplicate(entity: Entity): Entity | undefined {
+		const rootGuid = this.#guidOf(entity)
+		if (rootGuid === undefined || !this.#isPersistent(entity)) return undefined
+		const captured = snapshotEntities(this.world, this.registry, this.#subtree(entity))
+		if (!captured.ok) {
+			this.#logger.error('Entities cannot be duplicated', captured.error)
+			return undefined
+		}
+		const fresh = new Map<string, Guid>(captured.value.entities.map((item): [string, Guid] => [item.id, createGuid()]))
+		const copyRoot = fresh.get(rootGuid) as Guid
+		const snapshot = {
+			entities: captured.value.entities.map((item) => {
+				const components: Record<string, Record<string, unknown>> = {}
+				for (const [name, data] of Object.entries(item.components)) {
+					const copy: Record<string, unknown> = { ...data }
+					for (const [field, kind] of Object.entries(this.registry.get(name)?.schema ?? {})) {
+						const value = copy[field]
+						if (kind === 'entity' && typeof value === 'string') copy[field] = fresh.get(value) ?? value
+					}
+					components[name] = copy
+				}
+				if (item.id === rootGuid) {
+					const position = components['transform']
+					const label = components['name']
+					if (position !== undefined) {
+						position['x'] = Number(position['x']) + DUPLICATE_OFFSET
+						position['y'] = Number(position['y']) + DUPLICATE_OFFSET
+					}
+					if (label !== undefined) label['value'] = `${String(label['value'])} copy`.slice(0, MAX_NAME_LENGTH)
+				}
+				return { id: fresh.get(item.id) as Guid, components }
+			})
+		}
+		this.#perform({
+			kind: 'structure',
+			label: 'Duplicate entity',
+			execute: () => {
+				const restored = restoreWorld(this.world, this.registry, snapshot)
+				if (!restored.ok) throw restored.error
+				for (const [guid, restoredEntity] of restored.value) this.#guids.set(guid, restoredEntity)
+				this.#selection = this.#guids.get(copyRoot)
+			},
+			undo: () => {
+				const target = this.#resolve(copyRoot)
+				if (target !== undefined) this.#remove(target)
+			}
+		})
+		return this.#guids.get(copyRoot)
 	}
 
 	nameOf(entity: Entity): string {
