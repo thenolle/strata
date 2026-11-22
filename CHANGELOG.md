@@ -25,3 +25,4 @@
 - Editor: viewport context menu with picking, entity creation at the pointer and a grid toggle; panning moved to middle drag.
 - Editor: sprite component, assets panel with import and drag into the viewport, textured drawing and an image picker in the inspector.
 - Scene: register the sprite component so sprites are saved, loaded and restored by undo.
+- Editor: duplicate an entity with its descendants (Ctrl+D), undoable.
