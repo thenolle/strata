@@ -1406,3 +1406,164 @@ body {
   font: 12px/1.5 ui-monospace, Consolas, monospace;
   white-space: pre-wrap;
 }
+
+.ide-line {
+  position: absolute;
+  right: 0;
+  left: 0;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.045);
+  pointer-events: none;
+}
+
+.word-highlight {
+  background: rgba(120, 160, 255, 0.2);
+  border-radius: 2px;
+}
+
+.ide-popup {
+  max-height: 280px;
+  overflow: auto;
+}
+
+.ide-docs {
+  position: absolute;
+  z-index: 6;
+  max-width: 420px;
+  max-height: 280px;
+  overflow: auto;
+}
+
+.ide-badge {
+  display: inline-grid;
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+  place-items: center;
+  border-radius: 3px;
+  background: #3a3f47;
+  color: #cfd6e0;
+  font: 700 10px ui-monospace, Consolas, monospace;
+}
+
+.ide-badge-f,
+.ide-badge-m {
+  background: #5b3f8c;
+}
+
+.ide-badge-p,
+.ide-badge-v,
+.ide-badge-c {
+  background: #2f6f8f;
+}
+
+.ide-badge-C,
+.ide-badge-I,
+.ide-badge-S,
+.ide-badge-T {
+  background: #8a6a1f;
+}
+
+.ide-badge-s {
+  background: #2f7d4f;
+}
+
+.ide-pick {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  z-index: 9;
+  width: min(560px, 92%);
+  transform: translateX(-50%);
+  border: 1px solid #3a3f47;
+  border-radius: 6px;
+  background: #1f2329;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55);
+  font: 13px system-ui, sans-serif;
+}
+
+.ide-pick input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 1px solid #2c3037;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+
+.ide-pick ul {
+  max-height: 320px;
+  margin: 0;
+  padding: 4px 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.ide-pick li {
+  display: flex;
+  gap: 12px;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+
+.ide-pick li[data-active='true'] {
+  background: #2b4a7a;
+}
+
+.ide-pick .ide-detail {
+  margin-left: auto;
+  overflow: hidden;
+  color: #8b93a0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wb-search {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  font-size: 12px;
+}
+
+.wb-search input {
+  padding: 4px 8px;
+  border: 1px solid #3a3f47;
+  border-radius: 4px;
+  background: #14161a;
+  color: inherit;
+  font: inherit;
+}
+
+.wb-search-row {
+  display: flex;
+  gap: 2px;
+}
+
+.search-results,
+.search-results ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.search-path {
+  padding: 4px 0;
+  color: #e6e8eb;
+  font-weight: 600;
+}
+
+.search-hit {
+  padding: 2px 8px;
+  overflow: hidden;
+  color: #b4bcc8;
+  cursor: pointer;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-hit:hover {
+  background: #2a2f37;
+}

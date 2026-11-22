@@ -178,3 +178,16 @@ export function applyTextEdits(text: string, edits: readonly LspEdit[]): string 
 	for (const edit of resolved) result = result.slice(0, edit.from) + edit.newText + result.slice(edit.to)
 	return result
 }
+
+/**
+ * The character offset of a line and character position.
+ */
+export function offsetAt(text: string, line: number, character: number): number {
+	let offset = 0
+	for (let current = 0; current < line; current++) {
+		const next = text.indexOf('\n', offset)
+		if (next < 0) return text.length
+		offset = next + 1
+	}
+	return Math.min(text.length, offset + character)
+}
