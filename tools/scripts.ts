@@ -116,7 +116,7 @@ export async function bundleScripts(input: unknown): Promise<Compiled> {
 			return { ok: false, error: `${path}: ${describe(error)}` }
 		}
 		for (const item of runtime) {
-			if (!item.path.startsWith('./') && !item.path.startsWith('../') && item.path !== 'strata') return { ok: false, error: `${path}: Scripts can import only other scripts and "strata". Use "import type" for types.` }
+			if (!item.path.startsWith('./') && !item.path.startsWith('../') && item.path !== 'strata') return { ok: false, error: 'Scripts can import only other scripts and "strata". Use "import type" for types.' }
 		}
 		for (const item of imports) {
 			if (item.kind === 'dynamic-import' || item.kind === 'require-call') return { ok: false, error: `${path}: Scripts cannot load modules dynamically` }
