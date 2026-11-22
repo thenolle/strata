@@ -18,7 +18,7 @@ interface Row {
 	readonly open?: boolean
 }
 
-const ICON_OF: Readonly<Record<string, IconName>> = { image: 'image', audio: 'audio', script: 'typescript', prefab: 'prefab' }
+const ICON_OF: Readonly<Record<string, IconName>> = { image: 'image', audio: 'audio', script: 'typescript', prefab: 'prefab', graph: 'graph' }
 
 function buildRows(session: EditorSession, expanded: ReadonlySet<string>, kinds: readonly string[] | undefined): Row[] {
 	const library = session.project.assets

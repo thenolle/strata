@@ -46,3 +46,4 @@
 - Launcher: rename, duplicate, export and import projects as zip files, recent-first order, search, storage usage and protection.
 - Projects export as encrypted .strata files. Scripts can import a math, vector, easing, random, noise, color, geometry, curve and collections library from 'strata'.
 - Scripts: more libraries (text, arrays, timers, tweens, steering, procedural generation, matrices, pools). Visual scripting: about 180 nodes and a graph to TypeScript compiler.
+- Editor: graph assets with a node graph editor that generates scripts. Export games as a web folder or as native executables per system.

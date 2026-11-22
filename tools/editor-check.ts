@@ -14,6 +14,8 @@ import { bundleScripts } from './scripts.ts'
 import * as lib from '../packages/scripting/src/stdlib/index.ts'
 import { isSealed, seal, unseal } from '../apps/editor/src/seal.ts'
 import { compileGraph, listNodes, type GraphData } from '../packages/scripting/src/graph/index.ts'
+import { emptyGraphText } from '../apps/editor/src/graph-view.ts'
+
 
 console.log('fuzzy', fuzzyScore('sp', 'setPosition'), (fuzzyScore('sp', 'spawn') ?? 0) > (fuzzyScore('sp', 'setPosition') ?? 0), fuzzyScore('xyz', 'setPosition'))
 const expanded = expandSnippet('for (const ${1:item} of ${2:items}) {\n\t$0\n}', '\t')
@@ -224,3 +226,8 @@ const looped = await runGraph(
 	[]
 )
 console.log('graph-loop', typeof looped === 'string' ? looped : looped.logs[0])
+
+const graphFile = await project2.assets.importAsset('Mover.graph', new TextEncoder().encode(emptyGraphText()))
+const badGraph2 = await project2.assets.importAsset('Bad.graph', new TextEncoder().encode('{}'))
+const replaced = graphFile.ok ? await project2.assets.replaceContent(graphFile.value.id, new TextEncoder().encode(emptyGraphText())) : undefined
+console.log('graph-asset', graphFile.ok ? graphFile.value.kind : 'failed', badGraph2.ok, replaced?.ok)

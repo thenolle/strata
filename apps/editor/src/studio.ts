@@ -3,6 +3,10 @@ import { DisposableStore, type Disposable, type Entity, type Guid } from '@strat
 import type { EditorSession } from '@strata/editor-core'
 import { MenuRegistry } from '@strata/menus'
 import SCRIPT_TEMPLATE from './ide/script-template.txt'
+import { download } from './download.ts'
+import { buildWebGame, exportWebZip, slugName } from './export-web.ts'
+import { emptyGraphText } from './graph-view.ts'
+import { writeZip } from './zip.ts'
 
 export interface StudioHooks {
 	readonly save: () => Promise<void>
@@ -12,6 +16,8 @@ export interface StudioHooks {
 	readonly play: () => void
 	readonly openScript: (asset: Guid) => void
 	readonly revealFolder: (path: string) => void
+	readonly openGraph: (asset: Guid) => void
+	readonly announce: (text: string) => void
 }
 
 export interface Studio extends Disposable {
@@ -41,6 +47,8 @@ function worldPoint(args: unknown): { readonly x: number; readonly y: number } |
 	if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)) return undefined
 	return { x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100 }
 }
+
+const NATIVE_TARGETS: Readonly<Record<string, string>> = { windows: 'bun-windows-x64', linux: 'bun-linux-x64', 'linux-arm': 'bun-linux-arm64', mac: 'bun-darwin-arm64', 'mac-intel': 'bun-darwin-x64' }
 
 /**
  * Registers Studio's commands, default shortcuts, menus and the context keys that gate them.
@@ -318,6 +326,55 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 		if (!result.ok) return fail(result.error.message)
 	})
 
+	command('graph.new', 'New Graph', 'Script', async (args) => {
+		const folder = folderArg(args) ?? ''
+		let name = 'NewGraph.graph'
+		for (let index = 2; session.project.assets.find(name, folder) !== undefined; index++) name = `NewGraph${index}.graph`
+		const result = await session.project.assets.importAsset(name, new TextEncoder().encode(emptyGraphText()), folder)
+		if (!result.ok) return fail(result.error.message)
+		hooks.revealFolder(folder)
+		session.notifyAssetsChanged()
+		hooks.openGraph(result.value.id)
+	})
+	command('graph.edit', 'Edit Graph', 'Script', (args) => {
+		const id = assetArg(args)
+		const record = id === undefined ? undefined : session.project.assets.get(id as Guid)
+		if (record?.kind !== 'graph') throw new Error('Choose a graph in the Explorer first')
+		hooks.openGraph(record.id)
+	})
+
+	command('game.exportWeb', 'Export as Web Game', 'Game', async () => {
+		hooks.announce('Building the web export…')
+		const result = await exportWebZip(session)
+		if (!result.ok) {
+			hooks.announce('')
+			return fail(result.error.message)
+		}
+		download(result.value.fileName, result.value.bytes, 'application/zip')
+		hooks.announce(`Exported ${result.value.fileName}. Unzip it and put the folder on any web server.`)
+	})
+	command('game.exportNative', 'Export as Native Executable', 'Game', async () => {
+		const guess = /Windows/.test(navigator.userAgent) ? 'windows' : /Mac/.test(navigator.userAgent) ? 'mac' : 'linux'
+		const choice = prompt(`Build for which system?\n${Object.keys(NATIVE_TARGETS).join(', ')}`, guess)?.trim() ?? ''
+		const target = NATIVE_TARGETS[choice]
+		if (choice === '') return
+		if (target === undefined) return fail(`Unknown system "${choice}"`)
+		hooks.announce(`Building the ${choice} executable… the first build for a system downloads its runtime and can take a minute.`)
+		const web = await buildWebGame(session)
+		if (!web.ok) {
+			hooks.announce('')
+			return fail(web.error.message)
+		}
+		const reply = await fetch(`/api/export/native?target=${target}`, { method: 'POST', body: writeZip(web.value).slice() })
+		if (!reply.ok) {
+			hooks.announce('')
+			const info = (await reply.json().catch(() => ({}))) as { readonly error?: string }
+			return fail(info.error ?? 'The build failed')
+		}
+		download(`${slugName(session.project.name)}-${choice}${choice === 'windows' ? '.exe' : ''}`, new Uint8Array(await reply.arrayBuffer()))
+		hooks.announce(choice === 'windows' ? 'Done. Run the .exe; it opens the game in your browser.' : 'Done. Run "chmod +x" on the file, then start it; it opens the game in your browser.')
+	})
+
 	const added = keybindings.addAll([
 		{ keys: 'ctrl+shift+p', command: 'workbench.action.showCommands' },
 		{ keys: 'f1', command: 'workbench.action.showCommands' },
@@ -399,6 +456,8 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 	contribute('explorer/context', { command: 'asset.delete', group: '3_modify@3', when: isFile })
 	contribute('explorer/context', { command: 'folder.delete', group: '3_modify@4', when: "assetKind == 'folder'" })
 	contribute('explorer/context', { command: 'prefab.instantiate', title: 'Instantiate in Scene', group: '2_open@2', when: "assetKind == 'prefab'" })
+	contribute('explorer/context', { command: 'graph.new', title: 'New Graph', group: '1_new@3', when: isFolder })
+	contribute('explorer/context', { command: 'graph.edit', title: 'Edit Graph', group: '2_open@1', when: "assetKind == 'graph'" })
 
 	return { contexts, commands, keybindings, menus, dispose: () => store.dispose() }
 }

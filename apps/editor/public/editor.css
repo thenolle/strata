@@ -1695,3 +1695,241 @@ body {
   background: transparent;
   color: #b4bcc8;
 }
+
+.gv-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  background: rgba(0, 0, 0, 0.65);
+}
+
+.gv-panel {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  margin: 24px;
+  overflow: hidden;
+  border: 1px solid #3a3f47;
+  border-radius: 10px;
+  background: #14161a;
+}
+
+.gv-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #2c3037;
+}
+
+.gv-status {
+  color: #8b93a0;
+  font-size: 12px;
+}
+
+.gv-vars {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 12px;
+}
+
+.gv-chip {
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: #2a2f37;
+  color: #cfd6e0;
+  font-size: 12px;
+}
+
+.gv-chip button {
+  margin-left: 6px;
+  border: 0;
+  background: transparent;
+  color: #8b93a0;
+  cursor: pointer;
+}
+
+.gv-host {
+  position: relative;
+  min-height: 0;
+}
+
+.gv-problems {
+  margin: 0;
+  padding: 8px 12px 8px 28px;
+  max-height: 120px;
+  overflow: auto;
+  border-top: 1px solid #2c3037;
+  color: #f48771;
+  font-size: 12px;
+}
+
+.gv {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  outline: none;
+  background-color: #101216;
+  background-image: radial-gradient(#23272e 1px, transparent 1px);
+  background-size: 24px 24px;
+  touch-action: none;
+}
+
+.gv-world {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+
+.gv-wires {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.gv-wire {
+  fill: none;
+  stroke: #8b93a0;
+  stroke-width: 2;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+.gv-wire:hover {
+  stroke-width: 4;
+}
+
+.gv-node {
+  position: absolute;
+  min-width: 170px;
+  border: 1px solid #3a3f47;
+  border-radius: 8px;
+  background: #1f2329;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  font: 12px system-ui, sans-serif;
+  user-select: none;
+}
+
+.gv-node[data-selected='true'] {
+  border-color: #5b9dff;
+  box-shadow: 0 0 0 1px #5b9dff, 0 6px 18px rgba(0, 0, 0, 0.4);
+}
+
+.gv-title {
+  padding: 5px 10px;
+  border-radius: 7px 7px 0 0;
+  background: #2b3a55;
+  color: #e6e8eb;
+  font-weight: 600;
+  cursor: grab;
+}
+
+.gv-node[data-category='Events'] .gv-title {
+  background: #6a2b2b;
+}
+
+.gv-node[data-category='Flow'] .gv-title, .gv-node[data-category='Actions'] .gv-title {
+  background: #4a3f6a;
+}
+
+.gv-node[data-category='Math'] .gv-title {
+  background: #2b5a4a;
+}
+
+.gv-node[data-category='Unknown'] .gv-title {
+  background: #8a2b2b;
+}
+
+.gv-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 3px 0;
+}
+
+.gv-pin {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+}
+
+.gv-pin.gv-out {
+  flex-direction: row-reverse;
+  margin-left: auto;
+}
+
+.gv-dot {
+  width: 11px;
+  height: 11px;
+  flex: none;
+  border: 2px solid #1f2329;
+  border-radius: 50%;
+  background: #8b93a0;
+  cursor: crosshair;
+}
+
+.gv-type-flow {
+  background: #ffffff;
+  stroke: #ffffff;
+}
+
+.gv-type-number {
+  background: #4ec9b0;
+  stroke: #4ec9b0;
+}
+
+.gv-type-boolean {
+  background: #c586c0;
+  stroke: #c586c0;
+}
+
+.gv-type-string {
+  background: #ce9178;
+  stroke: #ce9178;
+}
+
+.gv-type-vec2 {
+  background: #dcdcaa;
+  stroke: #dcdcaa;
+}
+
+.gv-type-color {
+  background: #f0883e;
+  stroke: #f0883e;
+}
+
+.gv-type-entity {
+  background: #5fb3d9;
+  stroke: #5fb3d9;
+}
+
+.gv-type-any {
+  background: #8b93a0;
+  stroke: #8b93a0;
+}
+
+.gv-wire.gv-type-flow {
+  stroke-width: 3;
+}
+
+.gv-label {
+  color: #b4bcc8;
+}
+
+.gv-value {
+  width: 64px;
+  padding: 1px 4px;
+  border: 1px solid #3a3f47;
+  border-radius: 3px;
+  background: #14161a;
+  color: #e6e8eb;
+  font: inherit;
+  user-select: text;
+}
