@@ -18,7 +18,11 @@ function uniqueName(session: EditorSession, file: string): string {
 	}
 }
 
-function Tile(props: { readonly session: EditorSession; readonly asset: Asset }): Child {
+function Tile(props: {
+	readonly session: EditorSession
+	readonly asset: Asset
+	readonly run: (command: string, args?: unknown) => void
+}): Child {
 	const { session, asset } = props
 	return (
 		<li
@@ -37,6 +41,10 @@ function Tile(props: { readonly session: EditorSession; readonly asset: Asset })
 					event.dataTransfer.effectAllowed = 'copy'
 				}
 				tile.addEventListener('dragstart', onDragStart)
+				const onOpen = (): void => {
+					if (asset.kind === 'script') props.run('script.edit', { asset: asset.id })
+				}
+				tile.addEventListener('dblclick', onOpen)
 				if (asset.kind === 'image') {
 					void session.project.assets.read(asset.id, false).then((result) => {
 						if (!result.ok || gone) return
@@ -48,6 +56,7 @@ function Tile(props: { readonly session: EditorSession; readonly asset: Asset })
 				onCleanup(() => {
 					gone = true
 					tile.removeEventListener('dragstart', onDragStart)
+					tile.removeEventListener('dblclick', onOpen)
 					if (url !== undefined) URL.revokeObjectURL(url)
 				})
 			}}
@@ -61,7 +70,11 @@ function Tile(props: { readonly session: EditorSession; readonly asset: Asset })
 /**
  * The project's imported files. Image tiles can be dragged into the viewport or right-clicked for actions.
  */
-export function AssetsPanel(props: { readonly session: EditorSession; readonly onNotice: (text: string) => void }): Child {
+export function AssetsPanel(props: {
+	readonly session: EditorSession
+	readonly onNotice: (text: string) => void
+	readonly run: (command: string, args?: unknown) => void
+}): Child {
 	const { session } = props
 	const revision = signal(0)
 	let picker: HTMLInputElement | undefined
@@ -82,6 +95,9 @@ export function AssetsPanel(props: { readonly session: EditorSession; readonly o
 			<div class="panel-actions">
 				<Button size="sm" onClick={() => picker?.click()}>
 					Import PNG, WAV or TS
+				</Button>
+				<Button size="sm" variant="outline" onClick={() => props.run('script.new')}>
+					New script
 				</Button>
 				<input
 					type="file"
@@ -104,7 +120,7 @@ export function AssetsPanel(props: { readonly session: EditorSession; readonly o
 				revision()
 				const assets = session.project.assets.list()
 				if (assets.length === 0) return <p class="panel-empty">No assets yet. Import a PNG to use it as a sprite.</p>
-				return <ul class="tiles">{assets.map((asset) => <Tile session={session} asset={asset} />)}</ul>
+				return <ul class="tiles">{assets.map((asset) => <Tile session={session} asset={asset} run={props.run} />)}</ul>
 			}}
 		</aside>
 	)

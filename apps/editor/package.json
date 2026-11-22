@@ -19,7 +19,9 @@
     "@strata/project": "workspace:*",
     "@strata/renderer": "workspace:*",
     "@strata/runtime": "workspace:*",
-    "@strata/storage-opfs": "workspace:*"
+    "@strata/storage-opfs": "workspace:*",
+    "@strata/gameplay": "workspace:*",
+    "@strata/scripting": "workspace:*"
   },
   "strata": { "platform": "browser" }
 }

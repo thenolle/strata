@@ -2,7 +2,8 @@ import { FixedTimestep, Logger, World, nullSink, type Disposable, type Entity, t
 import { Controller, createGameRegistry, updateControllers, type ControllerInput } from '@strata/gameplay'
 import { ActionMap, InputManager } from '@strata/input'
 import { Body, Collider, Physics } from '@strata/physics'
-import type { AssetLibrary } from '@strata/project'
+import type { GameAssets } from './assets.ts'
+import { ScriptHost, ScriptSource, type ComponentView } from '@strata/scripting'
 import { Camera2D, SpriteBatch, createRenderer, decodeImage, fitCanvasToDisplay, packColor, type Renderer, type Texture } from '@strata/renderer'
 import { Camera, Name, Sprite, Transform, TransformSystem, loadScene } from '@strata/scene'
 import { AudioSystem } from './audio.ts'
@@ -22,9 +23,14 @@ const COLORS = [
 
 export interface GameOptions {
 	readonly canvas: HTMLCanvasElement
-	readonly assets: AssetLibrary
+	readonly assets: GameAssets
 	readonly sceneText: string
 	readonly logger?: Logger
+	/** Compiled JavaScript of each script asset, by asset id. */
+	readonly scripts?: ReadonlyMap<string, string>
+	/** Turns compiled script text into a module. The game never evaluates code itself. */
+	readonly loadModule?: (code: string) => Promise<unknown>
+	readonly onLog?: (text: string) => void
 	readonly onStatus?: (text: string) => void
 	readonly onError?: (message: string) => void
 }
@@ -53,6 +59,8 @@ export class Game implements Disposable {
 	readonly #layers = new Map<string, Layer>()
 	readonly #textures = new Map<string, Texture | null>()
 	readonly #camera = new Camera2D()
+	readonly #registry = createGameRegistry()
+	readonly #scripts: ScriptHost
 	#names: Map<string, Entity> | undefined
 	#running = false
 	#disposed = false
@@ -85,6 +93,29 @@ export class Game implements Disposable {
 		this.#physics = new Physics(world, { gravityY: GRAVITY, setPosition: (entity, x, y) => this.#transforms.setLocal(entity, { x, y }) })
 		this.#input = new InputManager(options.canvas, new ActionMap())
 		this.#audio = new AudioSystem(options.assets, logger.child('audio'))
+		const keys = this.#input.keyboard
+		this.#scripts = new ScriptHost({
+			input: {
+				isDown: (code) => keys.isDown(code),
+				wasPressed: (code) => keys.wasPressed(code),
+				axis: (negative, positive) => (keys.isDown(positive) ? 1 : 0) - (keys.isDown(negative) ? 1 : 0)
+			},
+			component: (entity, name) => {
+				const definition = this.#registry.get(name)
+				const data = definition === undefined ? undefined : this.world.get(entity, definition)
+				if (name === 'transform' && data !== undefined) this.#transforms.markDirty(entity)
+				return data as unknown as ComponentView | undefined
+			},
+			find: (name) => this.#findByName(name),
+			nameOf: (entity) => this.world.get(entity, Name)?.value ?? '',
+			setPosition: (entity, x, y) => this.#transforms.setLocal(entity, { x, y }),
+			log: (entity, values) => options.onLog?.(`${this.world.get(entity, Name)?.value ?? 'script'}: ${values.map(String).join(' ')}`),
+			fail: (entity, hook, error) => {
+				const message = error instanceof Error ? error.message : String(error)
+				logger.error('Script failed', error)
+				options.onError?.(`${this.world.get(entity, Name)?.value ?? 'script'} ${hook}: ${message}`)
+			}
+		})
 		this.#white = renderer.createTexture({ width: 1, height: 1, data: new Uint8Array([255, 255, 255, 255]) }, 'nearest')
 		this.#transforms.update()
 	}
@@ -105,12 +136,35 @@ export class Game implements Disposable {
 		return ok(new Game(options, logger, world, created.value))
 	}
 
-	start(): void {
+	async start(): Promise<void> {
+		if (this.#running || this.#disposed) return
+		await this.#loadScripts()
 		if (this.#running || this.#disposed) return
 		this.#running = true
 		this.#last = performance.now()
 		void this.#audio.start(this.world).catch((error: unknown) => this.#logger.error('Audio failed to start', error))
 		this.#frameId = requestAnimationFrame(this.#frame)
+	}
+
+	async #loadScripts(): Promise<void> {
+		const load = this.#options.loadModule
+		const scripts = this.#options.scripts
+		if (load === undefined || scripts === undefined) return
+		const modules = new Map<string, unknown>()
+		for (const entity of this.world.query(ScriptSource)) {
+			const asset = this.world.require(entity, ScriptSource).asset
+			if (asset === '') continue
+			try {
+				if (!modules.has(asset)) {
+					const code = scripts.get(asset)
+					if (code === undefined) throw new Error('The script asset was not found')
+					modules.set(asset, ((await load(code)) as { readonly default?: unknown }).default)
+				}
+				this.#scripts.attach(entity, modules.get(asset))
+			} catch (error: unknown) {
+				this.#options.onError?.(`Script failed to load: ${error instanceof Error ? error.message : String(error)}`)
+			}
+		}
 	}
 
 	stop(): void {
@@ -122,6 +176,7 @@ export class Game implements Disposable {
 		if (this.#disposed) return
 		this.stop()
 		this.#disposed = true
+		this.#scripts.dispose()
 		this.#audio.dispose()
 		this.#input.dispose()
 		this.#renderer.dispose()
@@ -145,6 +200,7 @@ export class Game implements Disposable {
 		try {
 			this.#timestep.advance(seconds, (step) => {
 				updateControllers(this.world, this.#controls)
+				this.#scripts.update(step)
 				this.#physics.step(step)
 				this.#transforms.update()
 			})
@@ -159,7 +215,7 @@ export class Game implements Disposable {
 			this.#lastStatus = now
 			const bodies = this.world.query(Body).length
 			const players = this.world.query(Controller, Body).length
-			this.#options.onStatus?.(`${this.#renderer.backend} · ${this.world.entityCount} entities · ${this.#drawn} drawn · ${bodies} bodies · ${players} players`)
+			this.#options.onStatus?.(`${this.#renderer.backend} · ${this.world.entityCount} entities · ${this.#drawn} drawn · ${bodies} bodies · ${players} players · ${this.#scripts.count} scripts`)
 		}
 		this.#frameId = requestAnimationFrame(this.#frame)
 	}

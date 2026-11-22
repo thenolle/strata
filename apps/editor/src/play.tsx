@@ -2,22 +2,64 @@
 import { Button } from '@gambrel/components'
 import { onCleanup, signal } from '@gambrel/reactivity'
 import type { Child } from '@gambrel/view'
+import type { Guid } from '@strata/core'
 import type { EditorSession } from '@strata/editor-core'
-import { Game } from '@strata/runtime'
-import { saveScene } from '@strata/scene'
-import { logger } from './logger.ts'
+import { AudioSource } from '@strata/gameplay'
+import { Sprite, saveScene } from '@strata/scene'
+import { ScriptSource } from '@strata/scripting'
+import type { FrameAsset, FromFrame, ToFrame } from './play-protocol.ts'
+
+type Prepared = { readonly ok: true; readonly message: ToFrame; readonly transfer: ArrayBuffer[] } | { readonly ok: false; readonly error: string }
 
 function hint(status: string): string {
 	if (status.includes(' 0 drawn')) return `${status} · nothing to draw`
-	if (status.endsWith(' 0 players')) return `${status} · select your entity and click Make player`
+	if (status.includes(' 0 players')) return `${status} · select your entity and click Make player`
 	return status
 }
 
+async function compile(source: string): Promise<{ readonly ok: true; readonly code: string } | { readonly ok: false; readonly error: string }> {
+	const response = await fetch('/api/compile', { method: 'POST', body: source })
+	return (await response.json()) as { readonly ok: true; readonly code: string } | { readonly ok: false; readonly error: string }
+}
+
 /**
- * Plays the current scene in its own world, so edits are never affected. Escape or Stop returns to the editor.
+ * Copies what the game needs out of the editor: the scene, the assets it uses and its compiled scripts.
+ */
+async function prepare(session: EditorSession): Promise<Prepared> {
+	const text = saveScene(session.world, session.registry)
+	if (!text.ok) return { ok: false, error: text.error.message }
+	const ids = new Set<string>()
+	for (const entity of session.world.query(Sprite)) ids.add(session.world.require(entity, Sprite).asset)
+	for (const entity of session.world.query(AudioSource)) ids.add(session.world.require(entity, AudioSource).asset)
+	for (const entity of session.world.query(ScriptSource)) ids.add(session.world.require(entity, ScriptSource).asset)
+	ids.delete('')
+	const assets: FrameAsset[] = []
+	const scripts: { id: string; code: string }[] = []
+	const transfer: ArrayBuffer[] = []
+	for (const id of ids) {
+		const record = session.project.assets.get(id as Guid)
+		if (record === undefined) continue
+		const bytes = await session.project.assets.read(record.id)
+		if (!bytes.ok) return { ok: false, error: bytes.error.message }
+		const copy = bytes.value.slice().buffer as ArrayBuffer
+		assets.push({ record, bytes: copy })
+		transfer.push(copy)
+		if (record.kind === 'script') {
+			const compiled = await compile(new TextDecoder().decode(bytes.value))
+			if (!compiled.ok) return { ok: false, error: `${record.name}: ${compiled.error}` }
+			scripts.push({ id: record.id, code: compiled.code })
+		}
+	}
+	return { ok: true, message: { type: 'start', scene: text.value, assets, scripts }, transfer }
+}
+
+/**
+ * Plays the current scene in a sandboxed frame with no access to the editor, so neither the game nor its scripts can touch your project.
+ * Escape or Stop returns to the editor.
  */
 export function PlayOverlay(props: { readonly session: EditorSession; readonly onClose: () => void }): Child {
 	const message = signal('Starting')
+	const log = signal<readonly string[]>([])
 	return (
 		<div class="play-backdrop">
 			<header class="play-bar">
@@ -29,55 +71,62 @@ export function PlayOverlay(props: { readonly session: EditorSession; readonly o
 					Stop
 				</Button>
 			</header>
-			<canvas
-				class="play-canvas"
-				style="display:block;width:100%;height:100%"
+			<iframe
+				class="play-frame"
+				title="Game"
+				sandbox="allow-scripts"
+				allow="autoplay"
 				ref={(element: Element) => {
-					const canvas = element as HTMLCanvasElement
-					let game: Game | undefined
+					const frame = element as HTMLIFrameElement
 					let closed = false
 					if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
-					canvas.tabIndex = -1
-					requestAnimationFrame(() => canvas.focus({ preventScroll: true }))
+					const start = async (): Promise<void> => {
+						const prepared = await prepare(props.session)
+						if (closed) return
+						if (!prepared.ok) {
+							message.set(`Cannot start: ${prepared.error}`)
+							return
+						}
+						frame.contentWindow?.postMessage(prepared.message, '*', prepared.transfer)
+						frame.focus()
+					}
+					const onMessage = (event: MessageEvent<FromFrame>): void => {
+						if (event.source !== frame.contentWindow || typeof event.data !== 'object' || event.data === null) return
+						const data = event.data
+						switch (data.type) {
+							case 'ready':
+								void start().catch((error: unknown) => message.set(`Cannot start: ${error instanceof Error ? error.message : String(error)}`))
+								break
+							case 'status':
+								message.set(hint(data.text))
+								break
+							case 'log':
+								log.update((lines) => [...lines, data.text].slice(-8))
+								break
+							case 'error':
+								message.set(`Error: ${data.text}`)
+								break
+							case 'stop':
+								props.onClose()
+								break
+						}
+					}
 					const onKey = (event: KeyboardEvent): void => {
 						if (event.key !== 'Escape') return
 						event.stopPropagation()
 						props.onClose()
 					}
+					addEventListener('message', onMessage)
 					addEventListener('keydown', onKey, true)
-					const text = saveScene(props.session.world, props.session.registry)
-					if (!text.ok) {
-						message.set(`Cannot start: ${text.error.message}`)
-					} else {
-						void Game.create({
-							canvas,
-							assets: props.session.project.assets,
-							sceneText: text.value,
-							logger: logger.child('game'),
-							onStatus: (status) => message.set(hint(status)),
-							onError: (error) => message.set(`Error: ${error}`)
-						})
-							.then((result) => {
-								if (!result.ok) {
-									message.set(`Cannot start: ${result.error.message}`)
-									return
-								}
-								if (closed) {
-									result.value.dispose()
-									return
-								}
-								game = result.value
-								game.start()
-							})
-							.catch((error: unknown) => message.set(`Cannot start: ${error instanceof Error ? error.message : String(error)}`))
-					}
+					frame.src = '/play/frame.html'
 					onCleanup(() => {
 						closed = true
+						removeEventListener('message', onMessage)
 						removeEventListener('keydown', onKey, true)
-						game?.dispose()
 					})
 				}}
-			></canvas>
+			></iframe>
+			<pre class="play-log">{() => log().join('\n')}</pre>
 		</div>
 	)
 }

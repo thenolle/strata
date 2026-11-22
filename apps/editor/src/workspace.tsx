@@ -2,7 +2,7 @@
 import { Button } from '@gambrel/components'
 import { onCleanup, signal } from '@gambrel/reactivity'
 import type { Child } from '@gambrel/view'
-import type { Entity } from '@strata/core'
+import type { Entity, Guid } from '@strata/core'
 import type { EditorSession } from '@strata/editor-core'
 import { ContextMenu, type MenuRequest } from './context-menu.tsx'
 import { Inspector } from './inspector.tsx'
@@ -13,6 +13,7 @@ import { createStudio } from './studio.ts'
 import { startViewport } from './viewport.ts'
 import { AssetsPanel } from './assets-panel.tsx'
 import { PlayOverlay } from './play.tsx'
+import { ScriptEditor } from './script-editor.tsx'
 
 function isTextInput(target: EventTarget | null): boolean {
 	return target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
@@ -33,6 +34,7 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 	const paletteOpen = signal(false)
 	const menu = signal<MenuRequest | undefined>(undefined)
 	const playing = signal(false)
+	const editing = signal<Guid | undefined>(undefined)
 	let rootElement: HTMLElement | undefined
 
 	const save = async (): Promise<void> => {
@@ -69,6 +71,7 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 		close: props.onClose,
 		openPalette: () => setPalette(true),
 		openContextMenu: showContextMenu,
+		openScript: (asset) => editing.set(asset),
 		play: () => {
 			session.select(undefined)
 			setPalette(false)
@@ -208,7 +211,7 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 					onCleanup(stop)
 				}}
 			></div>
-			<AssetsPanel session={session} onNotice={(text) => notice.set(text)} />
+			<AssetsPanel session={session} run={(id, args) => run(id, args)} onNotice={(text) => notice.set(text)} />
 			<aside class="panel inspector" aria-label="Inspector">
 				<Inspector session={session} selected={selected} revision={fieldRevision} run={(id) => run(id)} />
 			</aside>
@@ -233,6 +236,10 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 				)
 			}}
 			{() => (playing() ? <PlayOverlay session={session} onClose={() => playing.set(false)} /> : null)}
+			{() => {
+				const asset = editing()
+				return asset === undefined ? null : <ScriptEditor session={session} assetId={asset} onClose={() => editing.set(undefined)} />
+			}}
 		</div>
 	)
 }

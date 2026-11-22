@@ -11,7 +11,8 @@
     "@strata/physics": "workspace:*",
     "@strata/project": "workspace:*",
     "@strata/renderer": "workspace:*",
-    "@strata/scene": "workspace:*"
+    "@strata/scene": "workspace:*",
+    "@strata/scripting": "workspace:*"
   },
   "strata": { "platform": "browser" }
 }

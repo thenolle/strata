@@ -27,6 +27,7 @@
         "@strata/commands": "workspace:*",
         "@strata/core": "workspace:*",
         "@strata/editor-core": "workspace:*",
+        "@strata/gameplay": "workspace:*",
         "@strata/input": "workspace:*",
         "@strata/math": "workspace:*",
         "@strata/menus": "workspace:*",
@@ -35,6 +36,7 @@
         "@strata/renderer": "workspace:*",
         "@strata/runtime": "workspace:*",
         "@strata/scene": "workspace:*",
+        "@strata/scripting": "workspace:*",
         "@strata/storage-opfs": "workspace:*",
       },
     },
@@ -139,6 +141,7 @@
         "@strata/project": "workspace:*",
         "@strata/renderer": "workspace:*",
         "@strata/scene": "workspace:*",
+        "@strata/scripting": "workspace:*",
       },
     },
     "packages/scene": {
