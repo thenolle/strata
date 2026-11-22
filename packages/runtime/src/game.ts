@@ -6,6 +6,7 @@ import type { AssetLibrary } from '@strata/project'
 import { Camera2D, SpriteBatch, createRenderer, decodeImage, fitCanvasToDisplay, packColor, type Renderer, type Texture } from '@strata/renderer'
 import { Camera, Name, Sprite, Transform, TransformSystem, loadScene } from '@strata/scene'
 import { AudioSystem } from './audio.ts'
+import { isDrawable } from './visibility.ts'
 
 const UNIT = 32
 const GRAVITY = -900
@@ -242,7 +243,7 @@ export class Game implements Disposable {
 		for (const layer of this.#layers.values()) layer.batch.clear()
 		this.#drawn = 0
 		for (const entity of this.world.query(Transform)) {
-			if (this.world.has(entity, Camera)) continue
+			if (!isDrawable(this.world, entity)) continue
 			this.#drawEntity(entity)
 			this.#drawn++
 		}
