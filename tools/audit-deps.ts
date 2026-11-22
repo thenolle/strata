@@ -22,6 +22,9 @@ const DEPENDENCY_FIELDS = ['dependencies', 'peerDependencies', 'optionalDependen
 const IMPORT_PATTERN = /(?:^\s*(?:import|export)\b[^'";]*?\bfrom\s*|^\s*import\s*|\bimport\s*\(\s*)['"]([^'"]+)['"]/gm
 const root = resolve(import.meta.dir, '..')
 
+/** The only places allowed to import a third-party package, and which package. The native window needs the system webview. */
+const ISOLATED_IMPORTS: readonly { readonly prefix: string; readonly allowed: readonly string[] }[] = [{ prefix: 'tools/native-shell/', allowed: ['webview-bun'] }]
+
 function normalize(path: string): string {
 	return path.replaceAll('\\', '/')
 }
@@ -108,7 +111,11 @@ async function auditSources(workspaces: readonly Workspace[], findings: Finding[
 		const owner = workspaces.find((workspace) => file.startsWith(`${workspace.directory}/`))
 		const platform: Platform = owner?.platform ?? 'server'
 		const source = await Bun.file(resolve(root, file)).text()
-		for (const match of source.matchAll(IMPORT_PATTERN)) auditSpecifier(file, platform, match[1] ?? '', workspaces, findings)
+		for (const match of source.matchAll(IMPORT_PATTERN)) {
+			const specifier = match[1] ?? ''
+			if (ISOLATED_IMPORTS.some((rule) => file.startsWith(rule.prefix) && rule.allowed.includes(specifier))) continue
+			auditSpecifier(file, platform, specifier, workspaces, findings)
+		}
 	}
 }
 

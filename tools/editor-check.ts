@@ -15,6 +15,8 @@ import * as lib from '../packages/scripting/src/stdlib/index.ts'
 import { isSealed, seal, unseal } from '../apps/editor/src/seal.ts'
 import { compileGraph, listNodes, type GraphData } from '../packages/scripting/src/graph/index.ts'
 import { emptyGraphText } from '../apps/editor/src/graph-view.ts'
+import { pngToIco } from '../apps/editor/src/ico.ts'
+import { sanitizeSettings } from '../apps/editor/src/export-settings.ts'
 
 
 console.log('fuzzy', fuzzyScore('sp', 'setPosition'), (fuzzyScore('sp', 'spawn') ?? 0) > (fuzzyScore('sp', 'setPosition') ?? 0), fuzzyScore('xyz', 'setPosition'))
@@ -231,3 +233,16 @@ const graphFile = await project2.assets.importAsset('Mover.graph', new TextEncod
 const badGraph2 = await project2.assets.importAsset('Bad.graph', new TextEncoder().encode('{}'))
 const replaced = graphFile.ok ? await project2.assets.replaceContent(graphFile.value.id, new TextEncoder().encode(emptyGraphText())) : undefined
 console.log('graph-asset', graphFile.ok ? graphFile.value.kind : 'failed', badGraph2.ok, replaced?.ok)
+
+const fakePng = new Uint8Array(30)
+fakePng[0] = 137
+const icon = pngToIco(fakePng, 16, 16)
+console.log('ico', icon?.length, icon?.[2], icon?.[22], pngToIco(fakePng, 300, 10))
+const clean = sanitizeSettings({ title: 'A\u0001B', width: 99999, version: 'x', targets: ['windows', 'bogus', 'windows'], background: 'red' }, 'Game')
+console.log('settings', clean.title, clean.width, clean.version, clean.targets.join(','), clean.background)
+console.log('zip-mode', readZip(writeZip([{ name: 'run', data: new Uint8Array([1]), mode: 0o755 }])).ok)
+await original.saveSettings({ export: { title: 'x' } })
+const again = await packProject(sourceStorage)
+const copied = await unpackProject(again.ok ? again.value : new Uint8Array(), new MemoryStorage())
+const loadedSettings = copied.ok ? await copied.value.loadSettings() : undefined
+console.log('settings-archive', JSON.stringify(loadedSettings?.ok ? loadedSettings.value : null))

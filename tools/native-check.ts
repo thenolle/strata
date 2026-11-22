@@ -12,7 +12,7 @@ const built = await buildNative(writeZip([
 	{ name: 'index.html', data: encoder.encode('<!doctype html><title>t</title><script src="player.js"></script>') },
 	{ name: 'player.js', data: encoder.encode('console.log(1)') },
 	{ name: 'game.json', data: encoder.encode('{"scene":"","assets":[],"scripts":[]}') }
-]), target, 'Check')
+]), target, { title: 'Check' })
 if (!built.ok) {
 	console.log('native failed', built.error)
 	process.exit(1)

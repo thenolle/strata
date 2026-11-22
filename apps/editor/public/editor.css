@@ -1,3 +1,29 @@
+:root {
+  color-scheme: dark;
+}
+
+.dark {
+  --background: 220 15% 8%;
+  --foreground: 214 20% 91%;
+  --card: 216 14% 12%;
+  --card-foreground: 214 20% 91%;
+  --popover: 216 14% 12%;
+  --popover-foreground: 214 20% 91%;
+  --primary: 216 100% 68%;
+  --primary-foreground: 220 15% 8%;
+  --secondary: 216 12% 18%;
+  --secondary-foreground: 214 20% 91%;
+  --muted: 216 12% 18%;
+  --muted-foreground: 215 12% 62%;
+  --accent: 216 12% 21%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 62% 45%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 216 10% 22%;
+  --input: 216 10% 24%;
+  --ring: 216 100% 68%;
+}
+
 html,
 body {
   margin: 0;
@@ -1979,4 +2005,56 @@ body {
 .gv-node[data-error='true'] {
   border-color: #f14c4c;
   box-shadow: 0 0 0 1px #f14c4c, 0 6px 18px rgba(0, 0, 0, 0.4);
+}
+
+.dialog-wide {
+  width: min(780px, 94vw);
+  max-height: 90vh;
+  overflow: auto;
+}
+
+.export-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+
+.export-column {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+}
+
+.export-targets {
+  display: grid;
+  gap: 4px;
+}
+
+.export-target {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #cfd6e0;
+  font-size: 13px;
+}
+
+.export-state {
+  margin-left: auto;
+  color: #8b93a0;
+  font-size: 11px;
+}
+
+.export-size {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.dialog-field select, .dialog-field input[type='color'] {
+  padding: 6px 8px;
+  border: 1px solid #3a3f47;
+  border-radius: 6px;
+  background: #14161a;
+  color: #e6e8eb;
+  font: 13px system-ui, sans-serif;
 }

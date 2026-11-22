@@ -19,6 +19,7 @@ import { IconButton } from './ui.tsx'
 import { VIEWPORTS, loadMode, saveMode, type ViewMode } from './viewport-modes.ts'
 import type { ViewportOptions } from './viewport.ts'
 import { GraphEditor } from './graph-editor.tsx'
+import { ExportDialog } from './export-dialog.tsx'
 
 function isTextInput(target: EventTarget | null): boolean {
 	return target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
@@ -44,6 +45,7 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 	const reveal = signal<string | undefined>(undefined)
 	const scenes = signal<readonly string[]>([session.scene])
 	const graphAsset = signal<Guid | undefined>(undefined)
+	const exporting = signal(false)
 	const refreshScenes = (): void => { void session.scenes().then((names) => scenes.set(names)) }
 	refreshScenes()
 	let rootElement: HTMLElement | undefined
@@ -130,6 +132,7 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 			playing.set(true)
 		},
 		openGraph: (asset) => graphAsset.set(asset),
+		openExport: () => exporting.set(true),
 		announce: (text) => notice.set(text),
 	})
 	studio.contexts.set('viewMode', loadMode())
@@ -189,7 +192,7 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 				if (name === 'viewMode' || name === 'tool') toolbar.update((value) => value + 1)
 			})
 			const onKeyDown = (event: KeyboardEvent): void => {
-				if (playing() || ide() || graphAsset() !== undefined) return
+				if (playing() || ide() || graphAsset() !== undefined || exporting()) return
 				const outcome = studio.keybindings.handle(event)
 				if (outcome.kind === 'none') return
 				event.preventDefault()
@@ -244,8 +247,7 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 				</span>
 				<span class="spacer"></span>
 				<Button size="sm" onClick={() => run('play.start')}>Play</Button>
-				<Button size="sm" variant="ghost" onClick={() => run('game.exportWeb')}>Web export</Button>
-				<Button size="sm" variant="ghost" onClick={() => run('game.exportNative')}>Native export</Button>
+				<Button size="sm" variant="ghost" onClick={() => run('game.export')}>Export…</Button>
 				<Button size="sm" variant="ghost" onClick={() => run('graph.new')}>+ Graph</Button>
 				<Button size="sm" variant="ghost" onClick={() => setPalette(true)}>Commands</Button>
 				<Button size="sm" onClick={() => run('file.save')}>Save</Button>
@@ -323,6 +325,7 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 				const asset = graphAsset()
 				return asset === undefined ? null : <GraphEditor session={session} asset={asset} onClose={() => graphAsset.set(undefined)} />
 			}}
+			{() => (exporting() ? <ExportDialog session={session} onClose={() => exporting.set(false)} /> : null)}
 		</div>
 	)
 }

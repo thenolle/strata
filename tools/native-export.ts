@@ -2,15 +2,17 @@ import { existsSync } from 'node:fs'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { readZip } from '../apps/editor/src/zip.ts'
+import { sanitizeSettings } from '../apps/editor/src/export-settings.ts'
+import { pngSize, pngToIco } from '../apps/editor/src/ico.ts'
 
 const root = resolve(import.meta.dir, '..')
 const shell = join(root, 'tools/native-shell')
 const BUILD_TIMEOUT_MS = 240_000
 const MAX_ARCHIVE_BYTES = 512 * 1024 * 1024
-const SAFE_PATH = /^(?:index\.html|player\.js|game\.json|assets\/[A-Za-z0-9-]{1,64})$/
+const SAFE_PATH = /^(?:index\.html|player\.js|game\.json|icon\.png|assets\/[A-Za-z0-9-]{1,64})$/
+const slug = (name: string): string => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'game'
 
 export const TARGETS = ['bun-windows-x64', 'bun-linux-x64', 'bun-linux-arm64', 'bun-darwin-x64', 'bun-darwin-arm64'] as const
-
 export type NativeResult = { readonly ok: true; readonly bytes: Uint8Array; readonly fileName: string } | { readonly ok: false; readonly error: string }
 
 /**
@@ -47,14 +49,15 @@ async function compile(args: readonly string[], directory: string): Promise<{ re
 }
 
 /**
- * Compiles a web export into one executable that opens the game in a native window.
+ * Compiles a web export into one executable that opens the game in a native window, with the game's settings applied.
  */
-export async function buildNative(archive: Uint8Array, target: string, title = 'Strata game'): Promise<NativeResult> {
+export async function buildNative(archive: Uint8Array, target: string, rawSettings: unknown = {}): Promise<NativeResult> {
 	if (!(TARGETS as readonly string[]).includes(target)) return { ok: false, error: 'Unknown target system' }
 	if (archive.length > MAX_ARCHIVE_BYTES) return { ok: false, error: 'The game is too large for a native build' }
 	if (!existsSync(join(shell, 'node_modules/webview-bun'))) return { ok: false, error: 'Run "bun run native:setup" once to install the window library, then try again' }
 	const zip = readZip(archive)
 	if (!zip.ok) return { ok: false, error: zip.error.message }
+	const settings = sanitizeSettings(rawSettings, 'Strata game')
 	const entries = new Map<string, Uint8Array>()
 	for (const entry of zip.value) {
 		if (!SAFE_PATH.test(entry.name)) return { ok: false, error: `Unexpected file in the export: ${entry.name}` }
@@ -66,15 +69,32 @@ export async function buildNative(archive: Uint8Array, target: string, title = '
 	try {
 		await mkdir(directory, { recursive: true })
 		await writeFile(join(directory, 'game.html'), html)
-		const name = title.replace(/[\u0000-\u001f]/g, '').trim().slice(0, 80) || 'Strata game'
-		await writeFile(join(directory, 'entry.ts'), `import html from './game.html' with { type: 'text' }\nimport { start } from ${JSON.stringify(join(shell, 'shell.ts'))}\nstart(html, ${JSON.stringify(name)})\n`)
+		const options = { title: settings.title, width: settings.width, height: settings.height, resizable: settings.resizable }
+		const entryPath = join(directory, 'entry.ts')
+		await writeFile(entryPath, `import html from './game.html' with { type: 'text' }\nimport { start } from ${JSON.stringify(join(shell, 'shell.ts'))}\nstart(html, ${JSON.stringify(options)})\n`)
 		const windows = target.includes('windows')
 		const outfile = join(directory, windows ? 'game.exe' : 'game')
 		const base = ['build', '--compile', `--target=${target}`, `--outfile=${outfile}`]
-		let result = await compile([...base, ...(windows ? ['--windows-hide-console'] : []), join(directory, 'entry.ts')], directory)
-		if (result.code !== 0 && windows) result = await compile([...base, join(directory, 'entry.ts')], directory)
-		if (result.code !== 0) return { ok: false, error: result.output.slice(-1500) || 'The build failed' }
-		return { ok: true, bytes: new Uint8Array(await Bun.file(outfile).arrayBuffer()), fileName: windows ? 'game.exe' : 'game' }
+		const attempts: string[][] = [[]]
+		if (windows) {
+			const icon = entries.get('icon.png')
+			const size = icon === undefined ? undefined : pngSize(icon)
+			const ico = icon === undefined || size === undefined ? undefined : pngToIco(icon, size.width, size.height)
+			const iconArgs: string[] = []
+			if (ico !== undefined) {
+				await writeFile(join(directory, 'icon.ico'), ico)
+				iconArgs.push(`--windows-icon=${join(directory, 'icon.ico')}`)
+			}
+			const meta = [`--windows-title=${settings.title}`, `--windows-version=${settings.version}.0`, ...(settings.author === '' ? [] : [`--windows-publisher=${settings.author}`]), ...(settings.description === '' ? [] : [`--windows-description=${settings.description}`])]
+			attempts.splice(0, 1, ['--windows-hide-console', ...meta, ...iconArgs], ['--windows-hide-console', ...iconArgs], ['--windows-hide-console'], [])
+		}
+		let last = ''
+		for (const extra of attempts) {
+			const result = await compile([...base, ...extra, entryPath], directory)
+			if (result.code === 0) return { ok: true, bytes: new Uint8Array(await Bun.file(outfile).arrayBuffer()), fileName: `${slug(settings.title)}${windows ? '.exe' : ''}` }
+			last = result.output
+		}
+		return { ok: false, error: last.slice(-1500) || 'The build failed' }
 	} catch (error: unknown) {
 		return { ok: false, error: error instanceof Error ? error.message : String(error) }
 	} finally {

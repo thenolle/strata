@@ -1,5 +1,5 @@
 {
   "extends": "./tsconfig.base.json",
   "include": ["packages", "apps", "tools"],
-  "exclude": ["node_modules", "dist", "out"]
+  "exclude": ["node_modules", "dist", "out", "tools/native-shell"]
 }

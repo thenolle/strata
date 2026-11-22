@@ -7,6 +7,7 @@ export const PROJECT_KIND = 'strata.project'
 export const PROJECT_FORMAT_VERSION = 1
 
 const PROJECT_PATH = 'project.json'
+const SETTINGS_PATH = 'settings.json'
 const SCENE_DIR = 'scenes'
 const SCENE_SUFFIX = '.scene.json'
 const SCENE_NAME = /^[A-Za-z0-9][A-Za-z0-9 _-]{0,63}$/
@@ -125,5 +126,27 @@ export class Project {
 	async #writeMeta(): Promise<void> {
 		const text = stringifyEnvelope(createEnvelope(PROJECT_KIND, PROJECT_FORMAT_VERSION, { id: this.id, name: this.#name, createdAt: this.createdAt }))
 		await this.#storage.write(PROJECT_PATH, new TextEncoder().encode(text))
+	}
+
+	/** The project's saved settings, or undefined when none were saved. */
+	loadSettings(): Promise<Result<unknown>> {
+		return guard<unknown>(async () => {
+			const bytes = await this.#storage.read(SETTINGS_PATH)
+			if (bytes === undefined) return ok(undefined)
+			try {
+				return ok(JSON.parse(new TextDecoder().decode(bytes)) as unknown)
+			} catch {
+				return err(new StrataError('corrupt', 'The project settings are damaged'))
+			}
+		})
+	}
+
+	saveSettings(value: unknown): Promise<Result<void>> {
+		return guard<void>(async () => {
+			const text = JSON.stringify(value)
+			if (text.length > 64 * 1024) return err(new StrataError('invalid-argument', 'The settings are too large'))
+			await this.#storage.write(SETTINGS_PATH, new TextEncoder().encode(text))
+			return ok(undefined)
+		})
 	}
 }

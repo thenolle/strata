@@ -3,6 +3,7 @@ import { StrataError, err, ok, type Result } from '@strata/core'
 export interface ZipEntry {
 	readonly name: string
 	readonly data: Uint8Array
+	readonly mode?: number
 }
 
 const LOCAL = 0x04034b50
@@ -59,7 +60,7 @@ export function writeZip(entries: readonly ZipEntry[]): Uint8Array {
 		const header = new Uint8Array(46 + name.length)
 		const hv = new DataView(header.buffer)
 		hv.setUint32(0, CENTRAL, true)
-		hv.setUint16(4, 20, true)
+		hv.setUint16(4, entry.mode === undefined ? 20 : (3 << 8) | 20, true)
 		hv.setUint16(6, 20, true)
 		hv.setUint16(8, 0x0800, true)
 		hv.setUint16(12, stamp.time, true)
@@ -69,6 +70,7 @@ export function writeZip(entries: readonly ZipEntry[]): Uint8Array {
 		hv.setUint32(24, entry.data.length, true)
 		hv.setUint16(28, name.length, true)
 		hv.setUint32(42, offset, true)
+		if (entry.mode !== undefined) hv.setUint32(38, (entry.mode << 16) >>> 0, true)
 		header.set(name, 46)
 		chunks.push(local, entry.data)
 		directory.push(header)

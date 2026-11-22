@@ -5,7 +5,7 @@
     "": {
       "name": "strata-native-shell",
       "dependencies": {
-        "webview-bun": "^2.4.0",
+        "webview-bun": "2.4.0",
       },
     },
   },

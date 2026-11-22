@@ -3,10 +3,7 @@ import { DisposableStore, type Disposable, type Entity, type Guid } from '@strat
 import type { EditorSession } from '@strata/editor-core'
 import { MenuRegistry } from '@strata/menus'
 import SCRIPT_TEMPLATE from './ide/script-template.txt'
-import { download } from './download.ts'
-import { buildWebGame, exportWebZip, slugName } from './export-web.ts'
 import { emptyGraphText } from './graph-view.ts'
-import { writeZip } from './zip.ts'
 
 export interface StudioHooks {
 	readonly save: () => Promise<void>
@@ -17,6 +14,7 @@ export interface StudioHooks {
 	readonly openScript: (asset: Guid) => void
 	readonly revealFolder: (path: string) => void
 	readonly openGraph: (asset: Guid) => void
+	readonly openExport: () => void
 	readonly announce: (text: string) => void
 }
 
@@ -47,8 +45,6 @@ function worldPoint(args: unknown): { readonly x: number; readonly y: number } |
 	if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)) return undefined
 	return { x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100 }
 }
-
-const NATIVE_TARGETS: Readonly<Record<string, string>> = { windows: 'bun-windows-x64', linux: 'bun-linux-x64', 'linux-arm': 'bun-linux-arm64', mac: 'bun-darwin-arm64', 'mac-intel': 'bun-darwin-x64' }
 
 /**
  * Registers Studio's commands, default shortcuts, menus and the context keys that gate them.
@@ -343,37 +339,7 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 		hooks.openGraph(record.id)
 	})
 
-	command('game.exportWeb', 'Export as Web Game', 'Game', async () => {
-		hooks.announce('Building the web export…')
-		const result = await exportWebZip(session)
-		if (!result.ok) {
-			hooks.announce('')
-			return fail(result.error.message)
-		}
-		download(result.value.fileName, result.value.bytes, 'application/zip')
-		hooks.announce(`Exported ${result.value.fileName}. Unzip it and put the folder on any web server.`)
-	})
-	command('game.exportNative', 'Export as Native Executable', 'Game', async () => {
-		const guess = /Windows/.test(navigator.userAgent) ? 'windows' : /Mac/.test(navigator.userAgent) ? 'mac' : 'linux'
-		const choice = prompt(`Build for which system?\n${Object.keys(NATIVE_TARGETS).join(', ')}`, guess)?.trim() ?? ''
-		const target = NATIVE_TARGETS[choice]
-		if (choice === '') return
-		if (target === undefined) return fail(`Unknown system "${choice}"`)
-		hooks.announce(`Building the ${choice} executable… the first build for a system downloads its runtime and can take a minute.`)
-		const web = await buildWebGame(session)
-		if (!web.ok) {
-			hooks.announce('')
-			return fail(web.error.message)
-		}
-		const reply = await fetch(`/api/export/native?target=${target}&title=${encodeURIComponent(session.project.name)}`, { method: 'POST', body: writeZip(web.value).slice() })
-		if (!reply.ok) {
-			hooks.announce('')
-			const info = (await reply.json().catch(() => ({}))) as { readonly error?: string }
-			return fail(info.error ?? 'The build failed')
-		}
-		download(`${slugName(session.project.name)}-${choice}${choice === 'windows' ? '.exe' : ''}`, new Uint8Array(await reply.arrayBuffer()))
-		hooks.announce(choice === 'windows' ? 'Done. Double-click the .exe. It needs the Edge WebView2 runtime, which Windows 11 already has.' : 'Done. Run "chmod +x" on the file, then start it. On Linux it needs libgtk-4-1 and libwebkitgtk-6.0-4.')
-	})
+	command('game.export', 'Export Game…', 'Game', () => hooks.openExport())
 
 	const added = keybindings.addAll([
 		{ keys: 'ctrl+shift+p', command: 'workbench.action.showCommands' },
