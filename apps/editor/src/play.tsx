@@ -5,6 +5,7 @@ import type { Child } from '@gambrel/view'
 import type { EditorSession } from '@strata/editor-core'
 import { Game } from '@strata/runtime'
 import { saveScene } from '@strata/scene'
+import { logger } from './logger.ts'
 
 /**
  * Plays the current scene in its own world, so edits are never affected. Escape or Stop returns to the editor.
@@ -24,6 +25,7 @@ export function PlayOverlay(props: { readonly session: EditorSession; readonly o
 			</header>
 			<canvas
 				class="play-canvas"
+				style="display:block;width:100%;height:100%"
 				ref={(element: Element) => {
 					const canvas = element as HTMLCanvasElement
 					let game: Game | undefined
@@ -36,21 +38,29 @@ export function PlayOverlay(props: { readonly session: EditorSession; readonly o
 					addEventListener('keydown', onKey, true)
 					const text = saveScene(props.session.world, props.session.registry)
 					if (!text.ok) {
-						message.set(text.error.message)
+						message.set(`Cannot start: ${text.error.message}`)
 					} else {
-						void Game.create({ canvas, assets: props.session.project.assets, sceneText: text.value }).then((result) => {
-							if (!result.ok) {
-								message.set(result.error.message)
-								return
-							}
-							if (closed) {
-								result.value.dispose()
-								return
-							}
-							game = result.value
-							message.set('')
-							game.start()
+						void Game.create({
+							canvas,
+							assets: props.session.project.assets,
+							sceneText: text.value,
+							logger: logger.child('game'),
+							onStatus: (status) => message.set(status.endsWith(' 0 drawn') ? `${status} · nothing to draw, add a Player and a Platform` : status),
+							onError: (error) => message.set(`Error: ${error}`)
 						})
+							.then((result) => {
+								if (!result.ok) {
+									message.set(`Cannot start: ${result.error.message}`)
+									return
+								}
+								if (closed) {
+									result.value.dispose()
+									return
+								}
+								game = result.value
+								game.start()
+							})
+							.catch((error: unknown) => message.set(`Cannot start: ${error instanceof Error ? error.message : String(error)}`))
 					}
 					onCleanup(() => {
 						closed = true

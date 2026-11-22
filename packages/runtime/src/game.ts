@@ -4,7 +4,7 @@ import { ActionMap, InputManager } from '@strata/input'
 import { Collider, Physics } from '@strata/physics'
 import type { AssetLibrary } from '@strata/project'
 import { Camera2D, SpriteBatch, createRenderer, decodeImage, fitCanvasToDisplay, packColor, type Renderer, type Texture } from '@strata/renderer'
-import { Camera, Sprite, TransformSystem, loadScene } from '@strata/scene'
+import { Camera, Sprite, Transform, TransformSystem, loadScene } from '@strata/scene'
 
 const UNIT = 32
 const GRAVITY = -900
@@ -23,6 +23,8 @@ export interface GameOptions {
 	readonly assets: AssetLibrary
 	readonly sceneText: string
 	readonly logger?: Logger
+	readonly onStatus?: (text: string) => void
+	readonly onError?: (message: string) => void
 }
 
 interface Layer {
@@ -53,6 +55,8 @@ export class Game implements Disposable {
 	#frameId = 0
 	#last = 0
 	#jump = false
+	#drawn = 0
+	#lastStatus = 0
 
 	readonly #controls: ControllerInput = {
 		axisX: () => this.#axis('ArrowLeft', 'KeyA', 'ArrowRight', 'KeyD'),
@@ -135,8 +139,13 @@ export class Game implements Disposable {
 			this.#draw()
 		} catch (error: unknown) {
 			this.#logger.error('Game frame failed', error)
+			this.#options.onError?.(error instanceof Error ? error.message : String(error))
 			this.stop()
 			return
+		}
+		if (now - this.#lastStatus > 250) {
+			this.#lastStatus = now
+			this.#options.onStatus?.(`${this.#renderer.backend} · ${this.world.entityCount} entities · ${this.#drawn} drawn`)
 		}
 		this.#frameId = requestAnimationFrame(this.#frame)
 	}
@@ -177,9 +186,11 @@ export class Game implements Disposable {
 		const viewProjection = this.#camera.update(canvas.width, canvas.height)
 		this.#shapes.clear()
 		for (const layer of this.#layers.values()) layer.batch.clear()
-		for (const entity of this.world.query(Sprite)) this.#drawEntity(entity)
-		for (const entity of this.world.query(Collider)) {
-			if (!this.world.has(entity, Sprite)) this.#drawEntity(entity)
+		this.#drawn = 0
+		for (const entity of this.world.query(Transform)) {
+			if (this.world.has(entity, Camera)) continue
+			this.#drawEntity(entity)
+			this.#drawn++
 		}
 		const spriteDraws = [...this.#layers.values()].filter((layer) => layer.batch.count > 0).map((layer) => ({ texture: layer.texture, batch: layer.batch }))
 		this.#renderer.render({
