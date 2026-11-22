@@ -16,6 +16,7 @@
     "ide:check": "bun tools/ide-check.ts",
     "hooks": "git config core.hooksPath .githooks",
     "native:check": "bun tools/native-check.ts",
+    "native:setup": "cd tools/native-shell && bun add webview-bun",
     "serve:dir": "bun tools/static.ts",
     "lint:commits": "bun tools/lint-commit.ts --range origin/master..HEAD"
   },
@@ -23,7 +24,8 @@
     "@gambrel/bun": "0.2.3",
     "@gambrel/components": "0.2.3",
     "@gambrel/core": "0.2.3",
-    "@gambrel/view": "0.2.3"
+    "@gambrel/view": "0.2.3",
+    "webview-bun": "^2.4.0"
   },
   "devDependencies": {
     "@types/bun": "1.4.5",

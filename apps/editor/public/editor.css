@@ -1933,3 +1933,50 @@ body {
   font: inherit;
   user-select: text;
 }
+
+.gv-main {
+  position: relative;
+  min-height: 0;
+}
+
+.gv-host {
+  position: absolute;
+  inset: 0;
+}
+
+.gv-code {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  width: min(520px, 45%);
+  margin: 0;
+  padding: 10px 14px;
+  overflow: auto;
+  border-left: 1px solid #2c3037;
+  background: #0f1114;
+  color: #cfd6e0;
+  font: 12px/1.5 ui-monospace, Consolas, monospace;
+}
+
+.gv-ok {
+  margin: 0;
+  padding: 6px 12px;
+  border-top: 1px solid #2c3037;
+  color: #6a9955;
+  font-size: 12px;
+}
+
+.gv-marquee {
+  position: absolute;
+  z-index: 2;
+  border: 1px dashed #5b9dff;
+  background: rgba(91, 157, 255, 0.12);
+  pointer-events: none;
+}
+
+.gv-node[data-error='true'] {
+  border-color: #f14c4c;
+  box-shadow: 0 0 0 1px #f14c4c, 0 6px 18px rgba(0, 0, 0, 0.4);
+}

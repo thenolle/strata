@@ -246,6 +246,7 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 				<Button size="sm" onClick={() => run('play.start')}>Play</Button>
 				<Button size="sm" variant="ghost" onClick={() => run('game.exportWeb')}>Web export</Button>
 				<Button size="sm" variant="ghost" onClick={() => run('game.exportNative')}>Native export</Button>
+				<Button size="sm" variant="ghost" onClick={() => run('graph.new')}>+ Graph</Button>
 				<Button size="sm" variant="ghost" onClick={() => setPalette(true)}>Commands</Button>
 				<Button size="sm" onClick={() => run('file.save')}>Save</Button>
 				<Button size="sm" variant="outline" onClick={() => run('project.close')}>Close project</Button>

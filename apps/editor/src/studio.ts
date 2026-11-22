@@ -365,14 +365,14 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 			hooks.announce('')
 			return fail(web.error.message)
 		}
-		const reply = await fetch(`/api/export/native?target=${target}`, { method: 'POST', body: writeZip(web.value).slice() })
+		const reply = await fetch(`/api/export/native?target=${target}&title=${encodeURIComponent(session.project.name)}`, { method: 'POST', body: writeZip(web.value).slice() })
 		if (!reply.ok) {
 			hooks.announce('')
 			const info = (await reply.json().catch(() => ({}))) as { readonly error?: string }
 			return fail(info.error ?? 'The build failed')
 		}
 		download(`${slugName(session.project.name)}-${choice}${choice === 'windows' ? '.exe' : ''}`, new Uint8Array(await reply.arrayBuffer()))
-		hooks.announce(choice === 'windows' ? 'Done. Run the .exe; it opens the game in your browser.' : 'Done. Run "chmod +x" on the file, then start it; it opens the game in your browser.')
+		hooks.announce(choice === 'windows' ? 'Done. Double-click the .exe. It needs the Edge WebView2 runtime, which Windows 11 already has.' : 'Done. Run "chmod +x" on the file, then start it. On Linux it needs libgtk-4-1 and libwebkitgtk-6.0-4.')
 	})
 
 	const added = keybindings.addAll([

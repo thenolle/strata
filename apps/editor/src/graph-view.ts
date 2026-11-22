@@ -13,7 +13,8 @@ interface MNode {
 type Drag =
 	| { readonly kind: 'pan'; x: number; y: number }
 	| { readonly kind: 'nodes'; x: number; y: number; moved: boolean }
-	| { readonly kind: 'wire'; readonly from: HTMLElement; point: { x: number; y: number } }
+	| { readonly kind: 'wire'; readonly from: HTMLElement; point: { x: number; y: number }; readonly x: number; readonly y: number }
+	| { readonly kind: 'marquee'; readonly x: number; readonly y: number; readonly additive: boolean; readonly box: HTMLElement }
 
 const compatible = (a: G.PinType, b: G.PinType): boolean => (a === 'flow') === (b === 'flow') && (a === b || a === 'any' || b === 'any')
 
@@ -30,6 +31,8 @@ export function parseGraph(text: string): G.GraphData | undefined {
 		return undefined
 	}
 }
+
+let clipboard: { readonly nodes: readonly MNode[]; readonly edges: readonly G.GraphEdge[] } | undefined
 
 /**
  * A node graph canvas built from plain elements and one SVG layer for the wires.
@@ -51,6 +54,11 @@ export class GraphView {
 	#cursor = { x: 80, y: 80 }
 	#pick: (() => void) | undefined
 	#drag: Drag | undefined
+	#undo: string[] = []
+	#redo: string[] = []
+	#last = ''
+	#committedAt = 0
+	#errors = new Set<string>()
 
 	constructor(data: G.GraphData, onChange: () => void) {
 		this.#onChange = onChange
@@ -73,6 +81,8 @@ export class GraphView {
 		this.element.addEventListener('wheel', this.#onWheel, { passive: false })
 		this.element.addEventListener('dblclick', this.#onDouble)
 		this.element.addEventListener('keydown', this.#onKey)
+		this.#last = JSON.stringify(this.toData())
+		this.element.addEventListener('contextmenu', (event) => event.preventDefault())
 		this.render()
 	}
 
@@ -93,14 +103,14 @@ export class GraphView {
 		if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(variable.name) || this.#variables.some((existing) => existing.name === variable.name)) return false
 		this.#variables.push(variable)
 		this.render()
-		this.#onChange()
+		this.#commit()
 		return true
 	}
 
 	removeVariable(name: string): void {
 		this.#variables = this.#variables.filter((variable) => variable.name !== name)
 		this.render()
-		this.#onChange()
+		this.#commit()
 	}
 
 	openPicker(at = this.#cursor): void {
@@ -117,13 +127,14 @@ export class GraphView {
 		})
 	}
 
-	addNode(type: string, x: number, y: number): void {
+	addNode(type: string, x: number, y: number): string {
 		const id = `n${++this.#counter}`
 		this.#nodes.set(id, { id, type, x, y, values: {} })
 		this.#selected.clear()
 		this.#selected.add(id)
 		this.render()
-		this.#onChange()
+		this.#commit()
+		return id
 	}
 
 	deleteSelected(): void {
@@ -132,7 +143,7 @@ export class GraphView {
 		this.#edges = this.#edges.filter((edge) => !this.#selected.has(edge.from.node) && !this.#selected.has(edge.to.node))
 		this.#selected.clear()
 		this.render()
-		this.#onChange()
+		this.#commit()
 	}
 
 	render(): void {
@@ -163,6 +174,7 @@ export class GraphView {
 		box.className = 'gv-node'
 		box.dataset['id'] = node.id
 		box.dataset['selected'] = String(this.#selected.has(node.id))
+		box.dataset['error'] = String(this.#errors.has(node.id))
 		box.dataset['category'] = spec?.category ?? 'Unknown'
 		box.style.left = `${node.x}px`
 		box.style.top = `${node.y}px`
@@ -201,7 +213,7 @@ export class GraphView {
 		} else if (typeof node.values['name'] !== 'string') node.values['name'] = this.#variables[0]?.name ?? ''
 		select.addEventListener('change', () => {
 			node.values['name'] = select.value
-			this.#onChange()
+			this.#commit()
 		})
 		select.addEventListener('pointerdown', (event) => event.stopPropagation())
 		return select
@@ -215,6 +227,7 @@ export class GraphView {
 		dot.dataset['node'] = node.id
 		dot.dataset['pin'] = pin.name
 		dot.dataset['dir'] = direction
+		dot.title = `${pin.name}: ${pin.type}`
 		dot.dataset['type'] = pin.type
 		this.#dots.set(`${node.id}.${pin.name}.${direction}`, dot)
 		const label = document.createElement('span')
@@ -238,7 +251,7 @@ export class GraphView {
 			input.checked = current === true || current === 'true'
 			input.addEventListener('change', () => {
 				node.values[pin.name] = input.checked
-				this.#onChange()
+				this.#commit()
 			})
 		} else {
 			input.type = 'text'
@@ -248,7 +261,7 @@ export class GraphView {
 				const text = input.value
 				node.values[pin.name] =
 					pin.type === 'number' ? Number(text) || 0 : pin.type === 'any' ? (text === 'true' ? true : text === 'false' ? false : text.trim() !== '' && Number.isFinite(Number(text)) ? Number(text) : text) : text
-				this.#onChange()
+				this.#commit(true)
 			})
 		}
 		input.addEventListener('pointerdown', (event) => event.stopPropagation())
@@ -311,7 +324,7 @@ export class GraphView {
 		const dot = target.closest<HTMLElement>('.gv-dot')
 		const box = target.closest<HTMLElement>('.gv-node')
 		if (dot !== null && event.button === 0) {
-			this.#drag = { kind: 'wire', from: dot, point: this.#toWorld(event.clientX, event.clientY) }
+			this.#drag = { kind: 'wire', from: dot, point: this.#toWorld(event.clientX, event.clientY), x: event.clientX, y: event.clientY }
 		} else if (box !== null && event.button === 0) {
 			const id = box.dataset['id'] ?? ''
 			if (event.shiftKey) {
@@ -323,11 +336,16 @@ export class GraphView {
 			}
 			this.#paintSelection()
 			this.#drag = { kind: 'nodes', x: event.clientX, y: event.clientY, moved: false }
-		} else {
-			if (event.button === 0 && !event.shiftKey) {
+		} else if (event.button === 0) {
+			if (!event.shiftKey) {
 				this.#selected.clear()
 				this.#paintSelection()
 			}
+			const marquee = document.createElement('div')
+			marquee.className = 'gv-marquee'
+			this.element.append(marquee)
+			this.#drag = { kind: 'marquee', x: event.clientX, y: event.clientY, additive: event.shiftKey, box: marquee }
+		} else {
 			this.#drag = { kind: 'pan', x: event.clientX, y: event.clientY }
 		}
 	}
@@ -357,6 +375,9 @@ export class GraphView {
 				box.style.top = `${node.y}px`
 			}
 			this.#drawWires()
+		} else if (drag.kind === 'marquee') {
+			const rect = this.element.getBoundingClientRect()
+			Object.assign(drag.box.style, { left: `${Math.min(drag.x, event.clientX) - rect.left}px`, top: `${Math.min(drag.y, event.clientY) - rect.top}px`, width: `${Math.abs(event.clientX - drag.x)}px`, height: `${Math.abs(event.clientY - drag.y)}px` })
 		} else {
 			const from = this.#center(drag.from)
 			if (from !== undefined) this.#drawWires({ from, to: this.#cursor, type: drag.from.dataset['type'] ?? 'any' })
@@ -367,9 +388,23 @@ export class GraphView {
 		const drag = this.#drag
 		this.#drag = undefined
 		if (this.element.hasPointerCapture(event.pointerId)) this.element.releasePointerCapture(event.pointerId)
-		if (drag?.kind === 'nodes' && drag.moved) this.#onChange()
+		if (drag?.kind === 'nodes' && drag.moved) this.#commit()
+		if (drag?.kind === 'marquee') {
+			const left = Math.min(drag.x, event.clientX)
+			const right = Math.max(drag.x, event.clientX)
+			const top = Math.min(drag.y, event.clientY)
+			const bottom = Math.max(drag.y, event.clientY)
+			for (const [id, box] of this.#boxes) {
+				const rect = box.getBoundingClientRect()
+				if (rect.left < right && rect.right > left && rect.top < bottom && rect.bottom > top) this.#selected.add(id)
+			}
+			drag.box.remove()
+			this.#paintSelection()
+		}
 		if (drag?.kind === 'wire') {
-			this.#connect(drag.from, document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('.gv-dot') ?? undefined)
+			const hit = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('.gv-dot') ?? undefined
+			if (hit !== undefined) this.#connect(drag.from, hit)
+			else if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) > 8) this.#pickFor(drag.from, this.#toWorld(event.clientX, event.clientY))
 			this.#drawWires()
 		}
 	}
@@ -397,12 +432,180 @@ export class GraphView {
 
 	readonly #onKey = (event: KeyboardEvent): void => {
 		if (event.target !== this.element) return
-		if (event.key === 'Delete' || event.key === 'Backspace') {
-			event.preventDefault()
-			this.deleteSelected()
-		} else if (event.key === ' ') {
-			event.preventDefault()
-			this.openPicker()
+		const command = event.ctrlKey || event.metaKey
+		const key = event.key.toLowerCase()
+		if (event.key === 'Delete' || event.key === 'Backspace') this.deleteSelected()
+		else if (event.key === ' ') this.openPicker()
+		else if (command && key === 'z') {
+			if (event.shiftKey) this.redo()
+			else this.undo()
+		} else if (command && key === 'y') this.redo()
+		else if (command && key === 'c') this.copy()
+		else if (command && key === 'v') this.paste()
+		else if (command && key === 'd') this.duplicate()
+		else if (command && key === 'a') this.selectAll()
+		else if (!command && key === 'f') this.fit()
+		else return
+		event.preventDefault()
+	}
+
+	#commit(merge = false): void {
+		const now = JSON.stringify(this.toData())
+		if (now === this.#last) return
+		if (!(merge && Date.now() - this.#committedAt < 600)) {
+			this.#undo.push(this.#last)
+			if (this.#undo.length > 100) this.#undo.shift()
 		}
+		this.#redo = []
+		this.#last = now
+		this.#committedAt = Date.now()
+		this.#onChange()
+	}
+
+	#restore(state: string): void {
+		const data = JSON.parse(state) as G.GraphData
+		this.#nodes.clear()
+		for (const node of data.nodes) this.#nodes.set(node.id, { id: node.id, type: node.type, x: node.x, y: node.y, values: { ...node.values } })
+		this.#edges = data.edges.map((edge) => ({ from: { ...edge.from }, to: { ...edge.to } }))
+		this.#variables = data.variables.map((variable) => ({ ...variable }))
+		this.#selected.clear()
+		this.#last = state
+		this.render()
+		this.#onChange()
+	}
+
+	undo(): void {
+		const previous = this.#undo.pop()
+		if (previous === undefined) return
+		this.#redo.push(this.#last)
+		this.#restore(previous)
+	}
+
+	redo(): void {
+		const next = this.#redo.pop()
+		if (next === undefined) return
+		this.#undo.push(this.#last)
+		this.#restore(next)
+	}
+
+	copy(): void {
+		if (this.#selected.size === 0) return
+		clipboard = {
+			nodes: [...this.#selected].flatMap((id) => {
+				const node = this.#nodes.get(id)
+				return node === undefined ? [] : [{ ...node, values: { ...node.values } }]
+			}),
+			edges: this.#edges.filter((edge) => this.#selected.has(edge.from.node) && this.#selected.has(edge.to.node)).map((edge) => ({ from: { ...edge.from }, to: { ...edge.to } }))
+		}
+	}
+
+	paste(): void {
+		if (clipboard === undefined) return
+		const renamed = new Map<string, string>()
+		this.#selected.clear()
+		for (const node of clipboard.nodes) {
+			const id = `n${++this.#counter}`
+			renamed.set(node.id, id)
+			this.#nodes.set(id, { ...node, id, x: node.x + 40, y: node.y + 40, values: { ...node.values } })
+			this.#selected.add(id)
+		}
+		for (const edge of clipboard.edges) {
+			const from = renamed.get(edge.from.node)
+			const to = renamed.get(edge.to.node)
+			if (from !== undefined && to !== undefined) this.#edges.push({ from: { node: from, pin: edge.from.pin }, to: { node: to, pin: edge.to.pin } })
+		}
+		this.render()
+		this.#commit()
+	}
+
+	duplicate(): void {
+		this.copy()
+		this.paste()
+	}
+
+	selectAll(): void {
+		this.#selected.clear()
+		for (const id of this.#nodes.keys()) this.#selected.add(id)
+		this.#paintSelection()
+	}
+
+	/** Arranges nodes in columns by how many connections lead to them. */
+	tidy(): void {
+		const depth = new Map<string, number>([...this.#nodes.keys()].map((id): [string, number] => [id, 0]))
+		for (let pass = 0; pass < this.#nodes.size; pass++) {
+			let changed = false
+			for (const edge of this.#edges) {
+				const next = (depth.get(edge.from.node) ?? 0) + 1
+				if (depth.has(edge.to.node) && next > (depth.get(edge.to.node) ?? 0)) {
+					depth.set(edge.to.node, next)
+					changed = true
+				}
+			}
+			if (!changed) break
+		}
+		const columns = new Map<number, MNode[]>()
+		for (const node of this.#nodes.values()) columns.set(depth.get(node.id) ?? 0, [...(columns.get(depth.get(node.id) ?? 0) ?? []), node])
+		for (const [column, nodes] of columns) {
+			let y = 60
+			for (const node of [...nodes].sort((a, b) => a.y - b.y)) {
+				const spec = G.nodeSpec(node.type)
+				node.x = 60 + column * 280
+				node.y = y
+				y += 56 + 24 * Math.max(spec?.inputs.length ?? 1, spec?.outputs.length ?? 1)
+			}
+		}
+		this.render()
+		this.#commit()
+		this.fit()
+	}
+
+	fit(): void {
+		if (this.#nodes.size === 0) return
+		let minX = Infinity
+		let minY = Infinity
+		let maxX = -Infinity
+		let maxY = -Infinity
+		for (const [id, node] of this.#nodes) {
+			const box = this.#boxes.get(id)
+			minX = Math.min(minX, node.x)
+			minY = Math.min(minY, node.y)
+			maxX = Math.max(maxX, node.x + (box?.offsetWidth ?? 200))
+			maxY = Math.max(maxY, node.y + (box?.offsetHeight ?? 100))
+		}
+		const rect = this.element.getBoundingClientRect()
+		const zoom = Math.min(1.2, Math.max(0.3, Math.min(rect.width / (maxX - minX + 80), rect.height / (maxY - minY + 80))))
+		this.#zoom = zoom
+		this.#pan = { x: (rect.width - (maxX - minX) * zoom) / 2 - minX * zoom, y: (rect.height - (maxY - minY) * zoom) / 2 - minY * zoom }
+		this.#applyView()
+		this.#drawWires()
+	}
+
+	/** Outlines the nodes with problems in red. */
+	markErrors(ids: ReadonlySet<string>): void {
+		this.#errors = new Set(ids)
+		for (const [id, box] of this.#boxes) box.dataset['error'] = String(this.#errors.has(id))
+	}
+
+	#pickFor(from: HTMLElement, at: { x: number; y: number }): void {
+		const direction = from.dataset['dir']
+		const type = (from.dataset['type'] ?? 'any') as G.PinType
+		const fits = (spec: G.NodeSpec): boolean => (direction === 'out' ? spec.inputs.some((pin) => compatible(type, pin.type)) : spec.outputs.some((pin) => compatible(pin.type, type)))
+		this.#pick?.()
+		this.#pick = quickPick(this.element, {
+			placeholder: 'Add a connected node',
+			items: G.listNodes().filter(fits).map((spec) => ({ label: `${spec.category} › ${spec.title}`, detail: spec.id, value: spec.id })),
+			onPick: (nodeType) => {
+				const id = this.addNode(nodeType, at.x, at.y)
+				const spec = G.nodeSpec(nodeType)
+				const pin = direction === 'out' ? spec?.inputs.find((candidate) => compatible(type, candidate.type)) : spec?.outputs.find((candidate) => compatible(candidate.type, type))
+				const dot = pin === undefined ? undefined : this.#dots.get(`${id}.${pin.name}.${direction === 'out' ? 'in' : 'out'}`)
+				if (dot !== undefined) this.#connect(from, dot)
+			},
+			onClose: () => {
+				this.#pick = undefined
+				this.#drawWires()
+				this.element.focus()
+			}
+		})
 	}
 }
