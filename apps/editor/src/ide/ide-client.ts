@@ -16,12 +16,36 @@ export interface Completion {
 	readonly sort: string
 }
 
+export interface TextEdit {
+	readonly line: number
+	readonly character: number
+	readonly endLine: number
+	readonly endCharacter: number
+	readonly newText: string
+}
+
+export interface Signature {
+	readonly label: string
+	readonly documentation: string
+	readonly parameters: readonly string[]
+	readonly active: number
+}
+
+export interface Definition {
+	readonly local?: { readonly line: number; readonly character: number }
+	readonly external?: { readonly file: string; readonly text: string }
+}
+
 export interface IdeClient {
 	sync(name: string, text: string): Promise<void>
 	completion(name: string, line: number, character: number): Promise<readonly Completion[]>
 	hover(name: string, line: number, character: number): Promise<string>
 	diagnostics(name: string): Promise<readonly Diagnostic[]>
 	close(name: string): Promise<void>
+	definition(name: string, line: number, character: number): Promise<Definition | undefined>
+	signature(name: string, line: number, character: number): Promise<Signature | undefined>
+	format(name: string): Promise<readonly TextEdit[]>
+	rename(name: string, line: number, character: number, newName: string): Promise<readonly TextEdit[]>
 }
 
 async function call<T>(action: string, body: unknown): Promise<T> {
@@ -41,5 +65,9 @@ export const ideClient: IdeClient = {
 	diagnostics: async (name) => (await call<{ readonly diagnostics?: Diagnostic[] }>('diagnostics', { name })).diagnostics ?? [],
 	close: async (name) => {
 		await call('close', { name })
-	}
+	},
+	definition: async (name, line, character) => (await call<{ readonly result?: Definition }>('definition', { name, line, character })).result,
+	signature: async (name, line, character) => (await call<{ readonly result?: Signature }>('signature', { name, line, character })).result,
+	format: async (name) => (await call<{ readonly edits?: TextEdit[] }>('format', { name })).edits ?? [],
+	rename: async (name, line, character, newName) => (await call<{ readonly edits?: TextEdit[] }>('rename', { name, line, character, newName })).edits ?? [],
 }

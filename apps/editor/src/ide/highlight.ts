@@ -113,6 +113,16 @@ function span(kind: TokenKind, text: string, extra: string): string {
 	return kind === 'plain' && extra === '' ? escapeHtml(text) : `<span class="tok-${kind}${extra}">${escapeHtml(text)}</span>`
 }
 
+function markClass(severity: number): string {
+	switch (severity) {
+		case 1: return ' squiggle-error'
+		case 0: return ' bracket-match'
+		case -1: return ' find-match'
+		case -2: return ' find-current'
+		default: return ' squiggle-warning'
+	}
+}
+
 function renderLine(tokens: readonly Token[], ranges: readonly LineRange[]): string {
 	if (ranges.length === 0) return tokens.map((token) => span(token.kind, token.text, '')).join('')
 	let offset = 0
@@ -130,7 +140,7 @@ function renderLine(tokens: readonly Token[], ranges: readonly LineRange[]): str
 			const to = cuts[index + 1] as number
 			if (from === to) continue
 			const range = ranges.find((candidate) => from >= candidate.from && to <= candidate.to)
-			const extra = range === undefined ? '' : range.severity === 1 ? ' squiggle-error' : ' squiggle-warning'
+			const extra = range === undefined ? '' : markClass(range.severity)
 			html += span(token.kind, token.text.slice(from - offset, to - offset), extra)
 		}
 		offset = end
