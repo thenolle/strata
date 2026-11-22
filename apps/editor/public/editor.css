@@ -1583,3 +1583,48 @@ body {
   color: inherit;
   font: inherit;
 }
+
+.launcher-tools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0;
+}
+
+.launcher-tools input[type='search'] {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid #3a3f47;
+  border-radius: 6px;
+  background: #14161a;
+  color: inherit;
+  font: inherit;
+}
+
+.launcher-import {
+  padding: 6px 12px;
+  border: 1px solid #3a3f47;
+  border-radius: 6px;
+  color: #b4bcc8;
+  cursor: pointer;
+}
+
+.launcher-import:hover {
+  border-color: #5b9dff;
+  color: #ffffff;
+}
+
+.project-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.storage-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+  color: #8b93a0;
+  font-size: 12px;
+}
