@@ -27,5 +27,5 @@ export const Sprite = defineComponent('sprite', { asset: 'string' }, { asset: ''
 export type TransformData = ComponentData<(typeof Transform)['schema']>
 
 export function createSceneRegistry(): ComponentRegistry {
-	return new ComponentRegistry().register(Name).register(Transform).register(Parent)
+	return new ComponentRegistry().register(Name).register(Transform).register(Parent).register(Sprite)
 }
