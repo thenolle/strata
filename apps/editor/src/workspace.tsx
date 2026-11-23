@@ -23,6 +23,16 @@ import { ExportDialog } from './export-dialog.tsx'
 import { ControlsDialog } from './controls-dialog.tsx'
 import { dialogOpen } from './dialogs.tsx'
 
+const AUTOSAVE_KEY = 'strata.autosave'
+const AUTOSAVE_MS = 30_000
+const readAutosave = (): boolean => {
+	try {
+		return localStorage.getItem(AUTOSAVE_KEY) !== 'off'
+	} catch {
+		return true
+	}
+}
+
 function isTextInput(target: EventTarget | null): boolean {
 	return target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
 }
@@ -145,6 +155,8 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 		},
 	})
 	studio.contexts.set('viewMode', loadMode())
+	studio.contexts.set('autosave', readAutosave())
+	const filter = signal('')
 	const viewportOptions = (host: HTMLElement): ViewportOptions => ({
 		host,
 		session,
@@ -205,6 +217,13 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 					mountViewport()
 				}
 				if (name === 'viewMode' || name === 'tool') toolbar.update((value) => value + 1)
+				if (name === 'autosave') {
+					try {
+						localStorage.setItem(AUTOSAVE_KEY, studio.contexts.get('autosave') === true ? 'on' : 'off')
+					} catch {
+						/* storage unavailable */
+					}
+				}
 			})
 			const onKeyDown = (event: KeyboardEvent): void => {
 				if (playing() || ide() || graphAsset() !== undefined || exporting() || controlsOpen() || dialogOpen()) return
@@ -228,6 +247,10 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 				const found = menuTarget(target)
 				if (found !== null) openFor(found, x, y)
 			})
+			const autosaveTimer = setInterval(() => {
+				if (studio.contexts.get('autosave') !== true || !session.dirty || playing()) return
+				void session.save().then((result) => saveState.set(result.ok ? 'Autosaved' : `Autosave failed: ${result.error.message}`))
+			}, AUTOSAVE_MS)
 			addEventListener('keydown', onKeyDown)
 			addEventListener('beforeunload', onBeforeUnload)
 			root.addEventListener('contextmenu', onContextMenu)
@@ -239,6 +262,7 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 				studio.dispose()
 				stopViewport?.()
 				detachLongPress()
+				clearInterval(autosaveTimer)
 				removeEventListener('keydown', onKeyDown)
 				removeEventListener('beforeunload', onBeforeUnload)
 				root.removeEventListener('contextmenu', onContextMenu)
@@ -271,6 +295,7 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 			</header>
 			<aside class="panel outline" aria-label="Hierarchy" data-menu="outline/context">
 				<div class="panel-title">Scene</div>
+				<input class="panel-filter" type="search" placeholder="Filter entities" aria-label="Filter entities" onInput={(event) => filter.set((event.target as HTMLInputElement).value)} />
 				<div class="panel-actions">
 					<Button size="sm" onClick={() => run('entity.add')}>Add entity</Button>
 					<Button size="sm" variant="outline" disabled={() => selected() === undefined} onClick={() => run('entity.addChild')}>Add child</Button>
@@ -278,8 +303,9 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 				</div>
 				{() => {
 					outlineRevision()
-					const rows = session.rows()
-					if (rows.length === 0) return <p class="panel-empty">No entities yet. Add one to begin.</p>
+					const query = filter().trim().toLowerCase()
+					const rows = session.rows().filter((row) => query === '' || row.name.toLowerCase().includes(query))
+					if (rows.length === 0) return <p class="panel-empty">{query === '' ? 'No entities yet. Add one to begin.' : 'No entity matches the filter.'}</p>
 					return (
 						<ul class="rows">
 							{rows.map((row) => (<li class="row" data-menu="outline/context" data-entity={String(row.entity)} data-selected={String(session.isSelected(row.entity))} style={`padding-left:${8 + row.depth * 14}px`} onClick={(event) => {

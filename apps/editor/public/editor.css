@@ -2186,3 +2186,19 @@ body {
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
+
+.panel-filter {
+  width: calc(100% - 16px);
+  margin: 6px 8px;
+  padding: 5px 8px;
+  border: 1px solid #3a3f47;
+  border-radius: 6px;
+  background: #14161a;
+  color: #e6e8eb;
+  font: 12px system-ui, sans-serif;
+}
+
+.dialog-message {
+  max-height: 60vh;
+  overflow: auto;
+}

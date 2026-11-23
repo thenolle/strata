@@ -18,7 +18,9 @@ import { emptyGraphText } from '../apps/editor/src/graph-view.ts'
 import { pngToIco } from '../apps/editor/src/ico.ts'
 import { sanitizeSettings } from '../apps/editor/src/export-settings.ts'
 import { parseControls } from '../packages/input/src/virtual-controls'
+import { prettyKeys } from '../apps/editor/src/shortcuts.ts'
 
+console.log('shortcuts', prettyKeys('mod+shift+z'), prettyKeys('f5'), prettyKeys('contextmenu'), prettyKeys('w'))
 console.log('fuzzy', fuzzyScore('sp', 'setPosition'), (fuzzyScore('sp', 'spawn') ?? 0) > (fuzzyScore('sp', 'setPosition') ?? 0), fuzzyScore('xyz', 'setPosition'))
 const expanded = expandSnippet('for (const ${1:item} of ${2:items}) {\n\t$0\n}', '\t')
 console.log('snippet', JSON.stringify(expanded.text), expanded.stops.map((stop) => expanded.text.slice(stop.start, stop.end)).join('|'), expanded.stops[2]?.start === expanded.text.indexOf('\n\t}'))

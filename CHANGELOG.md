@@ -51,3 +51,4 @@
 - Export dialog: choose Web, Windows, Linux, macOS in any mix, with a title, icon, window size and more saved in the project. Gambrel dark theme fixes invisible ghost buttons.
 - Custom dialogs replace every native alert, confirm and prompt, and a check keeps it that way. Touch controls with a layout designer, and gamepad support.
 - Menu bar (File, Edit, Scene, Project, View, Help), panel titles, Reset Layout and About. The dialog rule is now enforced in CI.
+- Autosave every 30 seconds (View menu toggle), hierarchy filter and a keyboard shortcuts dialog.
