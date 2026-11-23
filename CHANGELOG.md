@@ -52,3 +52,4 @@
 - Custom dialogs replace every native alert, confirm and prompt, and a check keeps it that way. Touch controls with a layout designer, and gamepad support.
 - Menu bar (File, Edit, Scene, Project, View, Help), panel titles, Reset Layout and About. The dialog rule is now enforced in CI.
 - Autosave every 30 seconds (View menu toggle), hierarchy filter and a keyboard shortcuts dialog.
+- Output tab in the bottom dock: play logs and errors, command failures, saves and exports in one log.

@@ -3,13 +3,14 @@ import { Button } from '@gambrel/components'
 import { onCleanup, signal } from '@gambrel/reactivity'
 import type { Child } from '@gambrel/view'
 import type { Guid } from '@strata/core'
-import type { EditorSession } from '@strata/editor-core'
+import { type EditorSession } from '@strata/editor-core'
 import { AudioSource } from '@strata/gameplay'
 import { Sprite, saveScene } from '@strata/scene'
 import { ScriptSource } from '@strata/scripting'
 import { bundleScript, collectScripts, scriptPath } from './ide/bundle-client.ts'
 import type { FrameAsset, FromFrame, ToFrame } from './play-protocol.ts'
 import { loadControls } from './controls-settings.ts'
+import { output } from './output.ts'
 
 type Prepared = { readonly ok: true; readonly message: ToFrame; readonly transfer: ArrayBuffer[] } | { readonly ok: false; readonly error: string }
 
@@ -86,6 +87,7 @@ export function PlayOverlay(props: { readonly session: EditorSession; readonly o
 							message.set(`Cannot start: ${prepared.error}`)
 							return
 						}
+						output.info(`▶ Playing "${props.session.scene}"`)
 						frame.contentWindow?.postMessage(prepared.message, '*', prepared.transfer)
 						frame.focus()
 					}
@@ -100,9 +102,11 @@ export function PlayOverlay(props: { readonly session: EditorSession; readonly o
 								message.set(hint(data.text))
 								break
 							case 'log':
+								output.info(data.text)
 								log.update((lines) => [...lines, data.text].slice(-8))
 								break
 							case 'error':
+								output.error(data.text)
 								message.set(`Error: ${data.text}`)
 								break
 							case 'stop':

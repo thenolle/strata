@@ -2,10 +2,11 @@
 import { Button } from '@gambrel/components'
 import { signal } from '@gambrel/reactivity'
 import type { Child } from '@gambrel/view'
-import type { EditorSession } from '@strata/editor-core'
+import { type EditorSession } from '@strata/editor-core'
 import { download } from './download.ts'
 import { PRESETS, TARGET_OPTIONS, defaultSettings, sanitizeSettings, type ExportSettings } from './export-settings.ts'
 import { runExport, type ExportState } from './export-run.ts'
+import { output } from './output.ts'
 
 /**
  * Chooses what to export and the game's settings, saves them with the project, and builds everything chosen.
@@ -40,10 +41,12 @@ export function ExportDialog(props: { readonly session: EditorSession; readonly 
 		busy.set(false)
 		if (!result.ok) {
 			message.set(result.error.message)
+			output.error(`Export failed: ${result.error.message}`)
 			return
 		}
 		download(result.value.output.fileName, result.value.output.bytes, result.value.output.type)
 		message.set(result.value.failed.length === 0 ? `Exported ${result.value.output.fileName}` : `Exported ${result.value.output.fileName}. Failed: ${result.value.failed.join(', ')}`)
+		output.info(message.peek())
 	}
 
 	const text = (label: string, key: 'title' | 'version' | 'author' | 'description'): Child => (

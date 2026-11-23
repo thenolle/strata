@@ -22,6 +22,7 @@ import { GraphEditor } from './graph-editor.tsx'
 import { ExportDialog } from './export-dialog.tsx'
 import { ControlsDialog } from './controls-dialog.tsx'
 import { dialogOpen } from './dialogs.tsx'
+import { output } from './output.ts'
 
 const AUTOSAVE_KEY = 'strata.autosave'
 const AUTOSAVE_MS = 30_000
@@ -99,6 +100,8 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 	const save = async (): Promise<void> => {
 		const result = await session.save()
 		saveState.set(result.ok ? 'Saved' : `Save failed: ${result.error.message}`)
+		if (result.ok) output.info(`Saved "${session.scene}"`)
+		else output.error(`Save failed: ${result.error.message}`)
 	}
 
 	const setPalette = (open: boolean): void => {
@@ -191,7 +194,10 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 	}
 
 	const run = (id: string, args?: unknown): void => {
-		void studio.commands.execute(id, args).then((result) => notice.set(result.ok ? '' : result.error.message))
+		void studio.commands.execute(id, args).then((result) => {
+			notice.set(result.ok ? '' : result.error.message)
+			if (!result.ok) output.error(`${id}: ${result.error.message}`)
+		})
 	}
 
 	const MENUS: readonly (readonly [string, string])[] = [['File', 'menubar/file'], ['Edit', 'menubar/edit'], ['Scene', 'menubar/scene'], ['Project', 'menubar/project'], ['View', 'menubar/view'], ['Help', 'menubar/help']]
@@ -249,7 +255,10 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 			})
 			const autosaveTimer = setInterval(() => {
 				if (studio.contexts.get('autosave') !== true || !session.dirty || playing()) return
-				void session.save().then((result) => saveState.set(result.ok ? 'Autosaved' : `Autosave failed: ${result.error.message}`))
+				void session.save().then((result) => {
+					saveState.set(result.ok ? 'Autosaved' : `Autosave failed: ${result.error.message}`)
+					if (!result.ok) output.error(`Autosave failed: ${result.error.message}`)
+				})
 			}, AUTOSAVE_MS)
 			addEventListener('keydown', onKeyDown)
 			addEventListener('beforeunload', onBeforeUnload)
@@ -351,7 +360,7 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 			<Explorer session={session} run={(id, args) => run(id, args)} onNotice={(text) => notice.set(text)} reveal={reveal} onOpen={(asset) => {
 				if (asset.kind === 'script') run('script.edit', { asset: asset.id })
 				if (asset.kind === 'graph') run('graph.edit', { asset: asset.id })
-			}} />
+			}} output />
 			<aside class="panel inspector" aria-label="Inspector"><div class="panel-title">Inspector</div><Inspector session={session} selected={selected} revision={fieldRevision} run={(id) => run(id)} /></aside>
 			<footer class="workspace-status">{status}</footer>
 			{() => paletteOpen() ? (<CommandPalette registry={studio.commands} keybindings={studio.keybindings} onRun={(id) => {

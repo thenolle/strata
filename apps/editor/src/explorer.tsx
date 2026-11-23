@@ -5,6 +5,8 @@ import type { EditorSession } from '@strata/editor-core'
 import { ASSET_MIME } from './viewport.ts'
 import { createIcon, type IconName } from './icons.ts'
 import { IconButton } from './ui.tsx'
+import { OutputView } from './output-view.tsx'
+import { output } from './output.ts'
 
 export type Asset = ReturnType<EditorSession['project']['assets']['list']>[number]
 
@@ -63,11 +65,13 @@ export function Explorer(props: {
 	readonly onNotice: (text: string) => void
 	readonly reveal: () => string | undefined
 	readonly kinds?: readonly string[]
+	readonly output?: boolean
 }): Child {
 	const { session } = props
 	const expanded = signal<ReadonlySet<string>>(new Set())
 	const selected = signal<string | undefined>(undefined)
 	const revision = signal(0)
+	const tab = signal<'files' | 'output'>('files')
 	let current: readonly Row[] = []
 	let picker: HTMLInputElement | undefined
 
@@ -114,6 +118,7 @@ export function Explorer(props: {
 					expanded.set(next)
 				})
 				const onKeyDown = (event: KeyboardEvent): void => {
+					if (tab.peek() === 'output') return
 					const row = selectedRow()
 					const index = current.findIndex((candidate) => candidate.key === selected.peek())
 					if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -157,20 +162,21 @@ export function Explorer(props: {
 			}}
 		>
 			<div class="explorer-bar">
-				<strong>Explorer</strong>
+				{props.output === true ? (<div class="dock-tabs" role="tablist">
+					<button type="button" class="dock-tab" role="tab" data-active={() => String(tab() === 'files')} onClick={() => tab.set('files')}>Files</button>
+					<button type="button" class="dock-tab" role="tab" data-active={() => String(tab() === 'output')} onClick={() => tab.set('output')}>Output{() => (output.unseenErrors() > 0 && tab() !== 'output' ? ` (${output.unseenErrors()})` : '')}</button>
+				</div>) : (<strong>Explorer</strong>)}
 				<span class="spacer"></span>
-				<IconButton icon="new-file" title="New script" onClick={() => props.run('script.new', { folder: targetFolder() })} />
-				<IconButton icon="new-folder" title="New folder" onClick={() => props.run('folder.new', { folder: targetFolder() })} />
-				<IconButton icon="graph" title="New graph" onClick={() => props.run('graph.new', { folder: targetFolder() })} />
-				<IconButton icon="import" title="Import files" onClick={() => picker?.click()} />
-				<IconButton
-					icon="trash"
-					title="Delete selected"
-					onClick={() => {
+				{() => tab() === 'output' ? (<IconButton icon="trash" title="Clear output" onClick={() => output.clear()} />) : (<>
+					<IconButton icon="new-file" title="New script" onClick={() => props.run('script.new', { folder: targetFolder() })} />
+					<IconButton icon="new-folder" title="New folder" onClick={() => props.run('folder.new', { folder: targetFolder() })} />
+					<IconButton icon="graph" title="New graph" onClick={() => props.run('graph.new', { folder: targetFolder() })} />
+					<IconButton icon="import" title="Import files" onClick={() => picker?.click()} />
+					<IconButton icon="trash" title="Delete selected" onClick={() => {
 						const row = selectedRow()
 						if (row !== undefined) deleteRow(row)
-					}}
-				/>
+					}} />
+				</>)}
 				<input
 					type="file"
 					accept=".png,.wav,.ts,image/png,audio/wav"
@@ -189,6 +195,7 @@ export function Explorer(props: {
 				/>
 			</div>
 			{() => {
+				if (tab() === 'output') return <OutputView />
 				revision()
 				const rows = buildRows(session, expanded(), props.kinds)
 				current = rows
