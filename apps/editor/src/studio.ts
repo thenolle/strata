@@ -5,6 +5,7 @@ import { MenuRegistry } from '@strata/menus'
 import SCRIPT_TEMPLATE from './ide/script-template.txt'
 import { emptyGraphText } from './graph-view.ts'
 import { dialogs } from './dialogs.tsx'
+import { prettyKeys } from './shortcuts.ts'
 
 export interface StudioHooks {
 	readonly save: () => Promise<void>
@@ -133,9 +134,19 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 		if (session.paste(new TextDecoder().decode(bytes.value), { ...(point === undefined ? {} : { at: point }), label: false }) === undefined) fail('The prefab is damaged')
 	}
 
+	const titles = new Map<string, string>()
+	const shortcutLines = (): string => {
+		const grouped = new Map<string, string[]>()
+		for (const binding of bindings) grouped.set(binding.command, [...(grouped.get(binding.command) ?? []), prettyKeys(binding.keys)])
+		return [...grouped].map(([id, keys]) => `${titles.get(id) ?? id} — ${keys.join(' / ')}`).join('\n')
+	}
+
 	// Commands
 
-	const command = (id: string, title: string, category: string, run: (args?: unknown) => void | Promise<void>, when?: string): void => { store.add(commands.register({ id, title, category, ...(when === undefined ? {} : { when }), run })) }
+	const command = (id: string, title: string, category: string, run: (args?: unknown) => void | Promise<void>, when?: string): void => {
+		titles.set(id, title)
+		store.add(commands.register({ id, title, category, ...(when === undefined ? {} : { when }), run }))
+	}
 
 	command('workbench.action.showCommands', 'Show All Commands', 'View', hooks.openPalette)
 	command('workbench.action.showContextMenu', 'Show Context Menu', 'View', hooks.openContextMenu)
@@ -143,6 +154,7 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 	command('file.save', 'Save', 'File', hooks.save)
 
 	command('help.about', 'About Strata', 'Help', async () => { await dialogs.alert('Strata is a 2D and 3D game development environment by Nolly.\n\nGames made with Strata belong to their creators, with credit to Nolly and Strata.', { title: 'About Strata' }) })
+	command('help.shortcuts', 'Keyboard Shortcuts', 'Help', async () => { await dialogs.alert(shortcutLines(), { title: 'Keyboard shortcuts' }) })
 
 	command('project.close', 'Close Project', 'File', hooks.close)
 
@@ -150,6 +162,7 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 	command('view.mode2d', 'Switch to 2D View', 'View', () => contexts.set('viewMode', '2d'))
 	command('view.mode3d', 'Switch to 3D View', 'View', () => contexts.set('viewMode', '3d'))
 	command('view.resetLayout', 'Reset Layout', 'View', () => hooks.resetLayout())
+	command('view.toggleAutosave', 'Autosave', 'View', () => contexts.set('autosave', contexts.get('autosave') !== true))
 
 	command('asset.addToScene', 'Add Asset to Scene', 'Asset', async (args) => {
 		if (session.project.assets.get(assetArg(args) as Guid)?.kind === 'prefab') return instantiatePrefab(args)
@@ -352,7 +365,7 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 	command('game.export', 'Export Game…', 'Game', () => hooks.openExport())
 	command('game.controls', 'Edit Touch Controls…', 'Game', () => hooks.openControls())
 
-	const added = keybindings.addAll([
+	const bindings = [
 		{ keys: 'ctrl+shift+p', command: 'workbench.action.showCommands' },
 		{ keys: 'f1', command: 'workbench.action.showCommands' },
 		{ keys: 'shift+f10', command: 'workbench.action.showContextMenu' },
@@ -374,7 +387,8 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 		{ keys: 'mod+v', command: 'edit.paste', when: 'hasClipboard && !textInputFocus' },
 		{ keys: 't', command: 'tool.rect', when: '!textInputFocus' },
 		{ keys: 'mod+a', command: 'edit.selectAll', when: '!textInputFocus' },
-	])
+	]
+	const added = keybindings.addAll(bindings)
 	if (!added.ok) throw added.error
 
 	// Contibutions
@@ -466,6 +480,8 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 	contribute('menubar/view', { command: 'workbench.action.showCommands', group: '3_commands' })
 	contribute('menubar/help', { command: 'workbench.action.showCommands', group: '1_help@1' })
 	contribute('menubar/help', { command: 'help.about', group: '1_help@2' })
+	contribute('menubar/help', { command: 'help.shortcuts', group: '2_info' })
+	contribute('menubar/view', { command: 'view.toggleAutosave', title: 'Autosave', group: '2_layout@0', toggled: 'autosave' })
 
 	return { contexts, commands, keybindings, menus, dispose: () => store.dispose() }
 }
