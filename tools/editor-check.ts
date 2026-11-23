@@ -20,6 +20,7 @@ import { sanitizeSettings } from '../apps/editor/src/export-settings.ts'
 import { parseControls } from '../packages/input/src/virtual-controls'
 import { prettyKeys } from '../apps/editor/src/shortcuts.ts'
 import { output } from '../apps/editor/src/output.ts'
+import { OrbitCamera, planeHit, pointInRect } from '../apps/editor/src/camera3d.ts'
 
 console.log('shortcuts', prettyKeys('mod+shift+z'), prettyKeys('f5'), prettyKeys('contextmenu'), prettyKeys('w'))
 console.log('fuzzy', fuzzyScore('sp', 'setPosition'), (fuzzyScore('sp', 'spawn') ?? 0) > (fuzzyScore('sp', 'setPosition') ?? 0), fuzzyScore('xyz', 'setPosition'))
@@ -258,3 +259,7 @@ for (let index = 0; index < 600; index++) output.info(`line ${index}`)
 output.error('bad')
 console.log('output', output.lines().length, output.lines()[0]?.text, output.unseenErrors())
 output.clear()
+
+const orbitCamera = new OrbitCamera()
+const centerHit = planeHit(orbitCamera.ray(0, 0, 1.5))
+console.log('cam3d', Math.round(centerHit?.x ?? 99), Math.round(centerHit?.y ?? 99), pointInRect(15, 0, 0, 0, 40, 20, 0), pointInRect(15, 0, 0, 0, 40, 20, Math.PI / 2))

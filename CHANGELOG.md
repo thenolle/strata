@@ -53,3 +53,4 @@
 - Menu bar (File, Edit, Scene, Project, View, Help), panel titles, Reset Layout and About. The dialog rule is now enforced in CI.
 - Autosave every 30 seconds (View menu toggle), hierarchy filter and a keyboard shortcuts dialog.
 - Output tab in the bottom dock: play logs and errors, command failures, saves and exports in one log.
+- 3D view: a perspective view of the scene with orbit, pan, zoom, focus and click selection.
