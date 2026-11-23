@@ -20,7 +20,8 @@ import { sanitizeSettings } from '../apps/editor/src/export-settings.ts'
 import { parseControls } from '../packages/input/src/virtual-controls'
 import { prettyKeys } from '../apps/editor/src/shortcuts.ts'
 import { output } from '../apps/editor/src/output.ts'
-import { OrbitCamera, planeHit, pointInRect } from '../apps/editor/src/camera3d.ts'
+import { OrbitCamera, planeHit, pointInRect, closestParam, invert, modelMatrix, multiply } from '../apps/editor/src/camera3d.ts'
+import { eulerToQuat, quatToEuler } from '../apps/editor/src/euler.ts'
 
 console.log('shortcuts', prettyKeys('mod+shift+z'), prettyKeys('f5'), prettyKeys('contextmenu'), prettyKeys('w'))
 console.log('fuzzy', fuzzyScore('sp', 'setPosition'), (fuzzyScore('sp', 'spawn') ?? 0) > (fuzzyScore('sp', 'setPosition') ?? 0), fuzzyScore('xyz', 'setPosition'))
@@ -263,3 +264,11 @@ output.clear()
 const orbitCamera = new OrbitCamera()
 const centerHit = planeHit(orbitCamera.ray(0, 0, 1.5))
 console.log('cam3d', Math.round(centerHit?.x ?? 99), Math.round(centerHit?.y ?? 99), pointInRect(15, 0, 0, 0, 40, 20, 0), pointInRect(15, 0, 0, 0, 40, 20, Math.PI / 2))
+
+const m3 = modelMatrix(10, 20, 30, 0.5, 2, 3, 4)
+const inverse3 = invert(m3)
+const product = inverse3 === undefined ? new Float32Array(16).fill(9) : multiply(m3, inverse3)
+const worst = Math.max(...Array.from(product, (entry, index) => Math.abs(entry - (index % 5 === 0 ? 1 : 0))))
+console.log('math3d', worst < 1e-4, Math.round(closestParam({ origin: [0, 0, 10], direction: [0, 0, -1] }, [0, 0, 0], [1, 0, 0])), Math.round(closestParam({ origin: [5, 0, 10], direction: [0, 0, -1] }, [0, 0, 0], [1, 0, 0])))
+const euler = quatToEuler(...eulerToQuat(30, 40, 50))
+console.log('euler', euler.map((angle) => Math.round(angle)).join(' '), eulerToQuat(0, 0, 90)[2].toFixed(3))

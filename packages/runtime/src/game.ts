@@ -5,7 +5,7 @@ import { Body, Collider, Physics } from '@strata/physics'
 import type { GameAssets } from './assets.ts'
 import { ScriptHost, ScriptSource, type ComponentView } from '@strata/scripting'
 import { Camera2D, SpriteBatch, createRenderer, decodeImage, fitCanvasToDisplay, packColor, type Renderer, type Texture } from '@strata/renderer'
-import { Camera, Name, Sprite, Transform, TransformSystem, loadScene } from '@strata/scene'
+import { Camera, Name, Sprite, Transform, TransformSystem, loadScene, Light, Camera3D } from '@strata/scene'
 import { AudioSystem } from './audio.ts'
 import { isDrawable } from './visibility.ts'
 
@@ -338,6 +338,7 @@ export class Game implements Disposable {
 		this.#drawn = 0
 		for (const entity of this.world.query(Transform)) {
 			if (!isDrawable(this.world, entity)) continue
+			if (this.world.has(entity, Light) || this.world.has(entity, Camera3D)) continue
 			this.#drawEntity(entity)
 			this.#drawn++
 		}
