@@ -84,7 +84,7 @@ export function perspective(fovRadians: number, aspect: number, near: number, fa
 	return out
 }
 
-const VERTEX = `#version 300 es
+export const SHADER_VERTEX = `#version 300 es
 layout(location = 0) in vec3 p;
 layout(location = 1) in vec3 n;
 uniform mat4 model;
@@ -100,7 +100,7 @@ void main() {
 	uv = p.xy + 0.5;
 	gl_Position = viewProj * w;
 }`
-const FRAGMENT = `#version 300 es
+export const SHADER_FRAGMENT = `#version 300 es
 precision highp float;
 in vec3 wn;
 in vec3 wp;
@@ -109,6 +109,10 @@ uniform vec4 color;
 uniform sampler2D tex;
 uniform bool useTex;
 uniform float lit;
+uniform float ambient;
+uniform float fog;
+uniform vec3 fogColor;
+uniform vec3 eye;
 uniform vec4 lightA[4];
 uniform vec4 lightB[4];
 out vec4 outColor;
@@ -118,7 +122,7 @@ void main() {
 	if (lit > 0.5) {
 		vec3 n = normalize(wn);
 		if (!gl_FrontFacing) n = -n;
-		vec3 total = vec3(0.3);
+		vec3 total = vec3(ambient);
 		for (int i = 0; i < 4; i++) {
 			vec4 a = lightA[i];
 			vec4 b = lightB[i];
@@ -136,6 +140,8 @@ void main() {
 		}
 		c.rgb *= min(total, vec3(1.6));
 	}
+	float haze = clamp(1.0 - exp(-fog * distance(wp, eye) * 0.0008), 0.0, 1.0);
+	c.rgb = mix(c.rgb, fogColor, haze);
 	outColor = c;
 }`
 
@@ -143,13 +149,13 @@ const face = (n: readonly number[], u: readonly number[], v: readonly number[]):
 	const corner = (a: number, b: number): number[] => [0, 1, 2].map((i) => n[i]! * 0.5 + u[i]! * a * 0.5 + v[i]! * b * 0.5)
 	return [corner(-1, -1), corner(1, -1), corner(1, 1), corner(-1, -1), corner(1, 1), corner(-1, 1)].flatMap((p) => [...p, ...n])
 }
-const boxData = (): number[] => [
+export const boxData = (): number[] => [
 	...face([0, 0, 1], [1, 0, 0], [0, 1, 0]), ...face([0, 0, -1], [1, 0, 0], [0, 1, 0]), ...face([1, 0, 0], [0, 0, 1], [0, 1, 0]),
 	...face([-1, 0, 0], [0, 0, 1], [0, 1, 0]), ...face([0, 1, 0], [1, 0, 0], [0, 0, 1]), ...face([0, -1, 0], [1, 0, 0], [0, 0, 1])
 ]
-const planeData = (): number[] => [-0.5, 0, -0.5, 0, 1, 0, 0.5, 0, -0.5, 0, 1, 0, 0.5, 0, 0.5, 0, 1, 0, -0.5, 0, -0.5, 0, 1, 0, 0.5, 0, 0.5, 0, 1, 0, -0.5, 0, 0.5, 0, 1, 0]
-const quadData = (): number[] => [-0.5, -0.5, 0, 0, 0, 1, 0.5, -0.5, 0, 0, 0, 1, 0.5, 0.5, 0, 0, 0, 1, -0.5, -0.5, 0, 0, 0, 1, 0.5, 0.5, 0, 0, 0, 1, -0.5, 0.5, 0, 0, 0, 1]
-const sphereData = (): number[] => {
+export const planeData = (): number[] => [-0.5, 0, -0.5, 0, 1, 0, 0.5, 0, -0.5, 0, 1, 0, 0.5, 0, 0.5, 0, 1, 0, -0.5, 0, -0.5, 0, 1, 0, 0.5, 0, 0.5, 0, 1, 0, -0.5, 0, 0.5, 0, 1, 0]
+export const quadData = (): number[] => [-0.5, -0.5, 0, 0, 0, 1, 0.5, -0.5, 0, 0, 0, 1, 0.5, 0.5, 0, 0, 0, 1, -0.5, -0.5, 0, 0, 0, 1, 0.5, 0.5, 0, 0, 0, 1, -0.5, 0.5, 0, 0, 0, 1]
+export const sphereData = (): number[] => {
 	const out: number[] = []
 	const point = (i: number, j: number): number[] => {
 		const theta = (i / 14) * Math.PI
@@ -162,7 +168,7 @@ const sphereData = (): number[] => {
 	for (let i = 0; i < 14; i++) for (let j = 0; j < 24; j++) out.push(...point(i, j), ...point(i + 1, j), ...point(i + 1, j + 1), ...point(i, j), ...point(i + 1, j + 1), ...point(i, j + 1))
 	return out
 }
-const cylinderData = (): number[] => {
+export const cylinderData = (): number[] => {
 	const out: number[] = []
 	const side = (angle: number, y: number): number[] => [Math.cos(angle) * 0.5, y, Math.sin(angle) * 0.5, Math.cos(angle), 0, Math.sin(angle)]
 	for (let j = 0; j < 28; j++) {
@@ -184,6 +190,13 @@ function must<T>(value: T | null, what: string): T {
 	return value
 }
 
+export interface Environment3D {
+	readonly background: readonly number[]
+	readonly ambient: number
+	readonly fog: number
+	readonly eye: readonly [number, number, number]
+}
+
 /**
  * Draws lit meshes and textured cards with perspective on a WebGL 2 canvas. It owns the canvas context, so a game uses it instead of the 2D renderer.
  */
@@ -191,7 +204,22 @@ export class Renderer3D {
 	readonly #gl: WebGL2RenderingContext
 	readonly #program: WebGLProgram
 	readonly #geometry: Record<Shape3D, Geometry>
-	readonly #uniforms: Record<'model' | 'viewProj' | 'normalMat' | 'color' | 'tex' | 'useTex' | 'lit' | 'lightA' | 'lightB', WebGLUniformLocation | null>
+	readonly #uniforms: Record<
+		| 'model'
+		| 'viewProj'
+		| 'normalMat'
+		| 'color'
+		| 'tex'
+		| 'useTex'
+		| 'lit'
+		| 'lightA'
+		| 'lightB'
+		| 'ambient'
+		| 'fog'
+		| 'fogColor'
+		| 'eye',
+		WebGLUniformLocation | null
+	>
 
 	private constructor(gl: WebGL2RenderingContext) {
 		this.#gl = gl
@@ -203,8 +231,8 @@ export class Renderer3D {
 			return shader
 		}
 		const program = must(gl.createProgram(), 'a program')
-		gl.attachShader(program, compile(gl.VERTEX_SHADER, VERTEX))
-		gl.attachShader(program, compile(gl.FRAGMENT_SHADER, FRAGMENT))
+		gl.attachShader(program, compile(gl.VERTEX_SHADER, SHADER_VERTEX))
+		gl.attachShader(program, compile(gl.FRAGMENT_SHADER, SHADER_FRAGMENT))
 		gl.linkProgram(program)
 		if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program) ?? 'The 3D program failed to link')
 		this.#program = program
@@ -222,7 +250,21 @@ export class Renderer3D {
 		}
 		this.#geometry = { cube: make(boxData()), sphere: make(sphereData()), cylinder: make(cylinderData()), plane: make(planeData()), quad: make(quadData()) }
 		const at = (name: string): WebGLUniformLocation | null => gl.getUniformLocation(program, name)
-		this.#uniforms = { model: at('model'), viewProj: at('viewProj'), normalMat: at('normalMat'), color: at('color'), tex: at('tex'), useTex: at('useTex'), lit: at('lit'), lightA: at('lightA'), lightB: at('lightB') }
+		this.#uniforms = {
+			model: at('model'),
+			viewProj: at('viewProj'),
+			normalMat: at('normalMat'),
+			color: at('color'),
+			tex: at('tex'),
+			useTex: at('useTex'),
+			lit: at('lit'),
+			lightA: at('lightA'),
+			lightB: at('lightB'),
+			ambient: at('ambient'),
+			fog: at('fog'),
+			fogColor: at('fogColor'),
+			eye: at('eye')
+		}
 	}
 
 	/** Returns undefined when the browser cannot give a WebGL 2 context for this canvas. */
@@ -247,11 +289,11 @@ export class Renderer3D {
 		return texture
 	}
 
-	render(view: Float32Array, projection: Float32Array, draws: readonly Draw3D[], lights: readonly Light3D[]): void {
+	render(view: Float32Array, projection: Float32Array, draws: readonly Draw3D[], lights: readonly Light3D[], environment: Environment3D): void {
 		const gl = this.#gl
 		const u = this.#uniforms
 		gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight)
-		gl.clearColor(0.06, 0.07, 0.08, 1)
+		gl.clearColor(environment.background[0] ?? 0, environment.background[1] ?? 0, environment.background[2] ?? 0, 1)
 		gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 		gl.enable(gl.DEPTH_TEST)
 		gl.depthFunc(gl.LEQUAL)
@@ -273,6 +315,10 @@ export class Renderer3D {
 		}
 		gl.uniform4fv(u.lightA, a)
 		gl.uniform4fv(u.lightB, b)
+		gl.uniform1f(u.ambient, environment.ambient)
+		gl.uniform1f(u.fog, environment.fog)
+		gl.uniform3f(u.fogColor, environment.background[0] ?? 0, environment.background[1] ?? 0, environment.background[2] ?? 0)
+		gl.uniform3f(u.eye, environment.eye[0], environment.eye[1], environment.eye[2])
 		for (const textured of [false, true]) {
 			for (const item of draws) {
 				if ((item.texture !== undefined) !== textured) continue

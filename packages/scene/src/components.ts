@@ -40,6 +40,9 @@ export const Light = defineComponent('light', { kind: 'string', color: 'string',
 /** A 3D camera, shown with a frustum in the editor. */
 export const Camera3D = defineComponent('camera3d', { fov: 'f32', near: 'f32', far: 'f32' }, { fov: 60, near: 1, far: 5000 })
 
+/** Sets the look of a 3D scene: background color, ambient light (0 to 1) and distance fog (0 for none). */
+export const Environment = defineComponent('environment', { background: 'string', ambient: 'f32', fog: 'f32' }, { background: '#0f1114', ambient: 0.3, fog: 0 })
+
 export function createSceneRegistry(): ComponentRegistry {
 	return new ComponentRegistry()
 		.register(Name)
@@ -51,4 +54,5 @@ export function createSceneRegistry(): ComponentRegistry {
 		.register(Mesh)
 		.register(Light)
 		.register(Camera3D)
+		.register(Environment)
 }

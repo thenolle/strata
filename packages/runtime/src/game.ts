@@ -5,7 +5,7 @@ import { Body, Collider, Physics } from '@strata/physics'
 import type { GameAssets } from './assets.ts'
 import { ScriptHost, ScriptSource, type ComponentView } from '@strata/scripting'
 import { Camera2D, SpriteBatch, createRenderer, decodeImage, fitCanvasToDisplay, packColor, type Renderer, type Texture } from '@strata/renderer'
-import { Camera, Camera3D, Light, Mesh, Name, Sprite, Transform, TransformSystem, loadScene } from '@strata/scene'
+import { Camera, Camera3D, Light, Mesh, Name, Sprite, Transform, TransformSystem, loadScene, Environment } from '@strata/scene'
 import { Renderer3D, cameraView, lookAtView, multiply, perspective, scaleMatrix, type Draw3D, type Light3D, type Shape3D } from './renderer3d.ts'
 import { AudioSystem } from './audio.ts'
 import { isDrawable } from './visibility.ts'
@@ -415,6 +415,7 @@ export class Game implements Disposable {
 			const n = /^#[0-9a-f]{6}$/i.test(value) ? parseInt(value.slice(1), 16) : 0x808080
 			return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255]
 		}
+		let setting = { background: [0.06, 0.07, 0.08], ambient: 0.3, fog: 0 }
 		for (const entity of this.world.query(Transform)) {
 			const matrix = this.#transforms.worldMatrix(entity)
 			if (matrix === undefined) continue
@@ -422,6 +423,11 @@ export class Game implements Disposable {
 			const view = this.world.get(entity, Camera3D)
 			if (view !== undefined) {
 				camera ??= { world, fov: view.fov, near: view.near, far: view.far }
+				continue
+			}
+			const atmosphere = this.world.get(entity, Environment)
+			if (atmosphere !== undefined) {
+				setting = { background: hex(atmosphere.background), ambient: atmosphere.ambient, fog: atmosphere.fog }
 				continue
 			}
 			const light = this.world.get(entity, Light)
@@ -454,6 +460,7 @@ export class Game implements Disposable {
 		const aspect = canvas.width / Math.max(1, canvas.height)
 		const fov = camera === undefined ? 60 : camera.fov
 		const view = camera === undefined ? lookAtView([0, 300, 700], [0, 100, 0]) : cameraView(camera.world)
-		renderer.render(view, perspective((fov * Math.PI) / 180, aspect, camera?.near ?? 1, camera?.far ?? 5000), draws, lights)
+		const eye: [number, number, number] = camera === undefined ? [0, 300, 700] : [camera.world[12]!, camera.world[13]!, camera.world[14]!]
+		renderer.render(view, perspective((fov * Math.PI) / 180, aspect, camera?.near ?? 1, camera?.far ?? 5000), draws, lights, { ...setting, eye })
 	}
 }

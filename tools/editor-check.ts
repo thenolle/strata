@@ -23,6 +23,7 @@ import { output } from '../apps/editor/src/output.ts'
 import { OrbitCamera, planeHit, pointInRect, closestParam, invert, modelMatrix, multiply } from '../apps/editor/src/camera3d.ts'
 import { eulerToQuat, quatToEuler } from '../apps/editor/src/euler.ts'
 import { cameraView, perspective } from '../packages/runtime/src/renderer3d.ts'
+import { boxData, cylinderData, planeData, sphereData } from '../packages/runtime/src/renderer3d.ts'
 
 console.log('shortcuts', prettyKeys('mod+shift+z'), prettyKeys('f5'), prettyKeys('contextmenu'), prettyKeys('w'))
 console.log('fuzzy', fuzzyScore('sp', 'setPosition'), (fuzzyScore('sp', 'spawn') ?? 0) > (fuzzyScore('sp', 'setPosition') ?? 0), fuzzyScore('xyz', 'setPosition'))
@@ -276,3 +277,5 @@ console.log('euler', euler.map((angle) => Math.round(angle)).join(' '), eulerToQ
 
 const placed2 = cameraView(new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 10, 1]))
 console.log('runtime3d', placed2[14], perspective(1, 2, 1, 100)[11])
+
+console.log('geometry3d', boxData().length / 6, planeData().length / 6, sphereData().length / 6, cylinderData().length / 6)
