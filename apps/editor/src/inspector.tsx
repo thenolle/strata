@@ -132,7 +132,7 @@ function ComponentSection(props: { readonly session: EditorSession; readonly ent
 				if (kind === 'bool') return <BoolField label={field} revision={revision} read={() => session.componentValue(entity, definition, field) === true} write={(value) => session.setField(entity, definition, field, value)} />
 				if ((definition.name === 'audio' || definition.name === 'script') && field === 'asset') return <AssetField label={field} kind={definition.name === 'script' ? 'script' : 'audio'} session={session} revision={revision} read={() => String(session.componentValue(entity, definition, field) ?? '')} write={(value) => session.setField(entity, definition, field, value)} />
 				if (kind === 'entity') return null
-				if (kind === 'string' && field === 'color') return <ColorField label={field} revision={revision} read={() => String(session.componentValue(entity, definition, field) ?? '')} write={(value) => session.setField(entity, definition, field, value)} />
+				if (kind === 'string' && (field === 'color' || field === 'background')) return <ColorField label={field} revision={revision} read={() => String(session.componentValue(entity, definition, field) ?? '')} write={(value) => session.setField(entity, definition, field, value)} />
 				if (kind === 'string') {
 					const options = OPTIONS[`${definition.name}.${field}`]
 					const read = (): string => String(session.componentValue(entity, definition, field) ?? '')

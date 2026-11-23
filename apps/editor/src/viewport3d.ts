@@ -1,62 +1,8 @@
 import type { Entity, Guid } from '@strata/core'
 import { Parent, type TransformData } from '@strata/scene'
 import { OrbitCamera, closestParam, invert, multiply, project, quatAxisAngle, quatMultiply, rayBox, scaleMatrix, transformPoint, v3, type Quat, type Vec } from './camera3d.ts'
+import { SHADER_FRAGMENT, SHADER_VERTEX, boxData, cylinderData, planeData, quadData, sphereData } from '@strata/runtime'
 import type { ViewportOptions } from './viewport.ts'
-
-const VERTEX = `#version 300 es
-layout(location = 0) in vec3 p;
-layout(location = 1) in vec3 n;
-uniform mat4 model;
-uniform mat4 viewProj;
-uniform mat3 normalMat;
-out vec3 wn;
-out vec3 wp;
-out vec2 uv;
-void main() {
-	vec4 w = model * vec4(p, 1.0);
-	wp = w.xyz;
-	wn = normalize(normalMat * n);
-	uv = p.xy + 0.5;
-	gl_Position = viewProj * w;
-}`
-const FRAGMENT = `#version 300 es
-precision highp float;
-in vec3 wn;
-in vec3 wp;
-in vec2 uv;
-uniform vec4 color;
-uniform sampler2D tex;
-uniform bool useTex;
-uniform float lit;
-uniform vec4 lightA[4];
-uniform vec4 lightB[4];
-out vec4 outColor;
-void main() {
-	vec4 c = useTex ? texture(tex, vec2(uv.x, 1.0 - uv.y)) * color : color;
-	if (c.a < 0.01) discard;
-	if (lit > 0.5) {
-		vec3 n = normalize(wn);
-		if (!gl_FrontFacing) n = -n;
-		vec3 total = vec3(0.3);
-		for (int i = 0; i < 4; i++) {
-			vec4 a = lightA[i];
-			vec4 b = lightB[i];
-			if (a.w < -0.5) continue;
-			vec3 l;
-			float att = 1.0;
-			if (a.w < 0.5) l = normalize(a.xyz);
-			else {
-				vec3 d = a.xyz - wp;
-				float dist = length(d);
-				l = d / dist;
-				att = clamp(1.0 - dist / max(b.w, 1.0), 0.0, 1.0);
-			}
-			total += b.rgb * max(dot(n, l), 0.0) * att;
-		}
-		c.rgb *= min(total, vec3(1.6));
-	}
-	outColor = c;
-}`
 
 const AXES: readonly Vec[] = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
 const AXIS_COLORS: readonly (readonly number[])[] = [[0.92, 0.3, 0.3], [0.45, 0.8, 0.35], [0.35, 0.55, 0.95]]
@@ -70,6 +16,7 @@ const SNAP_ANGLE = (15 * Math.PI) / 180
 const HIT_PIXELS = 10
 const GRID_STEP = 50
 const GRID_SPAN = 2500
+const DEFAULT_ENVIRONMENT = { background: [0.06, 0.07, 0.08] as readonly number[], ambient: 0.3, fog: 0 }
 
 type Kind = 'mesh' | 'shape' | 'sprite' | 'light' | 'camera' | 'empty'
 type Tool = 'move' | 'rotate' | 'scale'
@@ -112,47 +59,6 @@ function hex(value: string): readonly number[] {
 	return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255]
 }
 
-function face(n: Vec, u: Vec, v: Vec): number[] {
-	const corner = (a: number, b: number): Vec => [n[0] * 0.5 + u[0] * a * 0.5 + v[0] * b * 0.5, n[1] * 0.5 + u[1] * a * 0.5 + v[1] * b * 0.5, n[2] * 0.5 + u[2] * a * 0.5 + v[2] * b * 0.5]
-	return [corner(-1, -1), corner(1, -1), corner(1, 1), corner(-1, -1), corner(1, 1), corner(-1, 1)].flatMap((p) => [...p, ...n])
-}
-
-const boxData = (): number[] => [
-	...face([0, 0, 1], [1, 0, 0], [0, 1, 0]), ...face([0, 0, -1], [1, 0, 0], [0, 1, 0]), ...face([1, 0, 0], [0, 0, 1], [0, 1, 0]),
-	...face([-1, 0, 0], [0, 0, 1], [0, 1, 0]), ...face([0, 1, 0], [1, 0, 0], [0, 0, 1]), ...face([0, -1, 0], [1, 0, 0], [0, 0, 1])
-]
-const planeData = (): number[] => [-0.5, 0, -0.5, 0, 1, 0, 0.5, 0, -0.5, 0, 1, 0, 0.5, 0, 0.5, 0, 1, 0, -0.5, 0, -0.5, 0, 1, 0, 0.5, 0, 0.5, 0, 1, 0, -0.5, 0, 0.5, 0, 1, 0]
-const quadData = (): number[] => [-0.5, -0.5, 0, 0, 0, 1, 0.5, -0.5, 0, 0, 0, 1, 0.5, 0.5, 0, 0, 0, 1, -0.5, -0.5, 0, 0, 0, 1, 0.5, 0.5, 0, 0, 0, 1, -0.5, 0.5, 0, 0, 0, 1]
-
-function sphereData(): number[] {
-	const out: number[] = []
-	const stacks = 14
-	const slices = 24
-	const point = (i: number, j: number): number[] => {
-		const theta = (i / stacks) * Math.PI
-		const phi = (j / slices) * Math.PI * 2
-		const nx = Math.sin(theta) * Math.cos(phi)
-		const ny = Math.cos(theta)
-		const nz = Math.sin(theta) * Math.sin(phi)
-		return [nx * 0.5, ny * 0.5, nz * 0.5, nx, ny, nz]
-	}
-	for (let i = 0; i < stacks; i++) for (let j = 0; j < slices; j++) out.push(...point(i, j), ...point(i + 1, j), ...point(i + 1, j + 1), ...point(i, j), ...point(i + 1, j + 1), ...point(i, j + 1))
-	return out
-}
-
-function cylinderData(): number[] {
-	const out: number[] = []
-	const slices = 28
-	for (let j = 0; j < slices; j++) {
-		const a = (j / slices) * Math.PI * 2
-		const b = ((j + 1) / slices) * Math.PI * 2
-		const side = (angle: number, y: number): number[] => [Math.cos(angle) * 0.5, y, Math.sin(angle) * 0.5, Math.cos(angle), 0, Math.sin(angle)]
-		out.push(...side(a, -0.5), ...side(b, -0.5), ...side(b, 0.5), ...side(a, -0.5), ...side(b, 0.5), ...side(a, 0.5))
-		for (const [y, ny] of [[0.5, 1], [-0.5, -1]] as const) out.push(0, y, 0, 0, ny, 0, Math.cos(a) * 0.5, y, Math.sin(a) * 0.5, 0, ny, 0, Math.cos(b) * 0.5, y, Math.sin(b) * 0.5, 0, ny, 0)
-	}
-	return out
-}
-
 /**
  * The 3D editor view: lit meshes, lights and cameras as nodes, a ground grid, move, rotate and scale gizmos, orbit and picking.
  * Entities from 2D scenes appear as flat cards standing in the scene.
@@ -193,10 +99,38 @@ export function startViewport3D(options: ViewportOptions): () => void {
 	let lastGrid = options.isGridVisible()
 	let lastTool = options.getTool()
 	let frameId = 0
+	let environment = DEFAULT_ENVIRONMENT
 
 	let program: WebGLProgram
-	let geo: Record<'box' | 'sphere' | 'cylinder' | 'plane' | 'quad' | 'gridMinor' | 'gridMajor' | 'axisX' | 'axisY' | 'axisZ', Geometry>
-	let u: Record<'model' | 'viewProj' | 'normalMat' | 'color' | 'tex' | 'useTex' | 'lit' | 'lightA' | 'lightB', WebGLUniformLocation | null>
+	let geo: Record<
+		| 'box'
+		| 'sphere'
+		| 'cylinder'
+		| 'plane'
+		| 'quad'
+		| 'gridMinor'
+		| 'gridMajor'
+		| 'axisX'
+		| 'axisY'
+		| 'axisZ',
+		Geometry
+	>
+	let u: Record<
+		| 'model'
+		| 'viewProj'
+		| 'normalMat'
+		| 'color'
+		| 'tex'
+		| 'useTex'
+		| 'lit'
+		| 'lightA'
+		| 'lightB'
+		| 'ambient'
+		| 'fog'
+		| 'fogColor'
+		| 'eye',
+		WebGLUniformLocation | null
+	>
 	try {
 		const compile = (type: number, source: string): WebGLShader => {
 			const shader = must(gl.createShader(type), 'a shader')
@@ -206,8 +140,8 @@ export function startViewport3D(options: ViewportOptions): () => void {
 			return shader
 		}
 		program = must(gl.createProgram(), 'a program')
-		gl.attachShader(program, compile(gl.VERTEX_SHADER, VERTEX))
-		gl.attachShader(program, compile(gl.FRAGMENT_SHADER, FRAGMENT))
+		gl.attachShader(program, compile(gl.VERTEX_SHADER, SHADER_VERTEX))
+		gl.attachShader(program, compile(gl.FRAGMENT_SHADER, SHADER_FRAGMENT))
 		gl.linkProgram(program)
 		if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program) ?? 'The 3D program failed to link')
 		const make = (data: readonly number[]): Geometry => {
@@ -235,8 +169,19 @@ export function startViewport3D(options: ViewportOptions): () => void {
 			axisX: make(lines([[-GRID_SPAN, 0, 0], [GRID_SPAN, 0, 0]])), axisY: make(lines([[0, 0, 0], [0, GRID_SPAN, 0]])), axisZ: make(lines([[0, 0, -GRID_SPAN], [0, 0, GRID_SPAN]]))
 		}
 		u = {
-			model: gl.getUniformLocation(program, 'model'), viewProj: gl.getUniformLocation(program, 'viewProj'), normalMat: gl.getUniformLocation(program, 'normalMat'), color: gl.getUniformLocation(program, 'color'),
-			tex: gl.getUniformLocation(program, 'tex'), useTex: gl.getUniformLocation(program, 'useTex'), lit: gl.getUniformLocation(program, 'lit'), lightA: gl.getUniformLocation(program, 'lightA'), lightB: gl.getUniformLocation(program, 'lightB')
+			model: gl.getUniformLocation(program, 'model'),
+			viewProj: gl.getUniformLocation(program, 'viewProj'),
+			normalMat: gl.getUniformLocation(program, 'normalMat'),
+			color: gl.getUniformLocation(program, 'color'),
+			tex: gl.getUniformLocation(program, 'tex'),
+			useTex: gl.getUniformLocation(program, 'useTex'),
+			lit: gl.getUniformLocation(program, 'lit'),
+			lightA: gl.getUniformLocation(program, 'lightA'),
+			lightB: gl.getUniformLocation(program, 'lightB'),
+			ambient: gl.getUniformLocation(program, 'ambient'),
+			eye: gl.getUniformLocation(program, 'eye'),
+			fog: gl.getUniformLocation(program, 'fog'),
+			fogColor: gl.getUniformLocation(program, 'fogColor'),
 		}
 	} catch (error: unknown) {
 		options.onStatus(`The 3D view could not start: ${error instanceof Error ? error.message : String(error)}`)
@@ -275,6 +220,7 @@ export function startViewport3D(options: ViewportOptions): () => void {
 		session.update()
 		const next: Item[] = []
 		const lights: { a: number[]; b: number[] }[] = []
+		let found = DEFAULT_ENVIRONMENT
 		for (const row of session.rows()) {
 			const worldMatrix = session.transforms.worldMatrix(row.entity)
 			if (worldMatrix === undefined) continue
@@ -287,6 +233,7 @@ export function startViewport3D(options: ViewportOptions): () => void {
 			let pick: Vec = [28, 28, 28]
 			let sprite = ''
 			let fov = 60
+			if (has(entity, 'environment')) found = { background: hex(String(value(entity, 'environment', 'background') ?? '#0f1114')), ambient: Number(value(entity, 'environment', 'ambient') ?? 0.3), fog: Number(value(entity, 'environment', 'fog') ?? 0) }
 			if (has(entity, 'mesh')) {
 				kind = 'mesh'
 				shape = String(value(entity, 'mesh', 'shape') ?? 'cube')
@@ -338,6 +285,7 @@ export function startViewport3D(options: ViewportOptions): () => void {
 			lightB.set(light === undefined ? [0, 0, 0, 0] : light.b, index * 4)
 		}
 		items = next
+		environment = found
 	}
 
 	const normalMatrix = (model: Float32Array): Float32Array => {
@@ -417,7 +365,7 @@ export function startViewport3D(options: ViewportOptions): () => void {
 	const render = (): void => {
 		collect()
 		gl.viewport(0, 0, canvas.width, canvas.height)
-		gl.clearColor(0.06, 0.07, 0.08, 1)
+		gl.clearColor(environment.background[0] ?? 0, environment.background[1] ?? 0, environment.background[2] ?? 0, 1)
 		gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 		gl.enable(gl.DEPTH_TEST)
 		gl.depthFunc(gl.LEQUAL)
@@ -429,6 +377,11 @@ export function startViewport3D(options: ViewportOptions): () => void {
 		gl.uniform1i(u.tex, 0)
 		gl.uniform4fv(u.lightA, lightA)
 		gl.uniform4fv(u.lightB, lightB)
+		const eye = camera.eye()
+		gl.uniform1f(u.ambient, environment.ambient)
+		gl.uniform1f(u.fog, environment.fog)
+		gl.uniform3f(u.fogColor, environment.background[0] ?? 0, environment.background[1] ?? 0, environment.background[2] ?? 0)
+		gl.uniform3f(u.eye, eye[0], eye[1], eye[2])
 		const identity = scaleMatrix(1, 1, 1)
 		if (options.isGridVisible()) {
 			draw(geo.gridMinor, gl.LINES, identity, [1, 1, 1, 0.06], 0)
@@ -468,6 +421,7 @@ export function startViewport3D(options: ViewportOptions): () => void {
 				for (let axis = 0; axis < 3; axis++) bar(item.position, v3.add(item.position, v3.scale(column(axis), 24)), unit, [...AXIS_COLORS[axis]!, 1])
 			}
 		}
+		gl.uniform1f(u.fog, 0)
 		for (const item of items) {
 			if (!session.isSelected(item.entity)) continue
 			for (let index = 0; index < EDGES.length; index += 2) bar(transformPoint(item.pickModel, CORNERS[EDGES[index]!]!), transformPoint(item.pickModel, CORNERS[EDGES[index + 1]!]!), unit * 1.1, [0.36, 0.62, 1, 1])

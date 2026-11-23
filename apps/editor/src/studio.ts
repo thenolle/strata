@@ -259,6 +259,7 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 	node3d('entity.addSun', 'Add Directional Light', 'Sun', 400, { light: { kind: 'directional', color: '#ffffff', intensity: 1, range: 500 } }, { tilt: -50 })
 	node3d('entity.addPointLight', 'Add Point Light', 'Point Light', 220, { light: { kind: 'point', color: '#fff3c4', intensity: 1.3, range: 700 } })
 	node3d('entity.addCamera3D', 'Add 3D Camera', 'Camera 3D', 180, { camera3d: { fov: 60, near: 1, far: 5000 } }, { z: 500 })
+	node3d('entity.addEnvironment', 'Add Environment', 'Environment', 0, { environment: { background: '#1b2433', ambient: 0.35, fog: 0.25 } })
 
 	command('tool.move', 'Move Tool', 'Tools', () => contexts.set('tool', 'move'))
 	command('tool.rotate', 'Rotate Tool', 'Tools', () => contexts.set('tool', 'rotate'))
@@ -412,11 +413,16 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 
 	contribute('entity/create', { command: 'entity.add', title: 'Entity', group: '1_create@1' })
 	contribute('entity/create', { command: 'entity.addChild', title: 'Child Entity', group: '1_create@2' })
-	for (const menu of ['outline/context', 'viewport/context']) {
-		contribute(menu, { command: 'entity.makePlayer', group: '2_modify@3', when: 'hasSelection' })
-		contribute(menu, { command: 'entity.makeSolid', group: '2_modify@4', when: 'hasSelection' })
-	}
-	for (const [command, group] of [['entity.addCube', '1_mesh@1'], ['entity.addSphere', '1_mesh@2'], ['entity.addCylinder', '1_mesh@3'], ['entity.addPlane', '1_mesh@4'], ['entity.addSun', '2_light@1'], ['entity.addPointLight', '2_light@2'], ['entity.addCamera3D', '3_camera']] as const) contribute('node3d/create', { command, group })
+	for (const [command, group] of [
+		['entity.addCube', '1_mesh@1'],
+		['entity.addSphere', '1_mesh@2'],
+		['entity.addCylinder', '1_mesh@3'],
+		['entity.addPlane', '1_mesh@4'],
+		['entity.addSun', '2_light@1'],
+		['entity.addPointLight', '2_light@2'],
+		['entity.addCamera3D', '3_camera'],
+		['entity.addEnvironment', '4_world']
+	] as const) contribute('node3d/create', { command, group })
 
 	contribute('outline/context', { submenu: 'entity/create', title: 'Create', group: '1_create' })
 	contribute('outline/context', { command: 'entity.rename', group: '2_modify@1' })
@@ -446,6 +452,10 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 		contribute(menu, { command: 'edit.copy', group: '2_edit@1' })
 		contribute(menu, { command: 'edit.cut', group: '2_edit@2' })
 		contribute(menu, { command: 'edit.paste', group: '2_edit@3' })
+	}
+	for (const menu of ['outline/context', 'viewport/context']) {
+		contribute(menu, { command: 'entity.makePlayer', group: '2_modify@3', when: 'hasSelection' })
+		contribute(menu, { command: 'entity.makeSolid', group: '2_modify@4', when: 'hasSelection' })
 	}
 
 	contribute('assets/context', { command: 'asset.addToScene', group: '1_create', when: "assetKind == 'image'" })
