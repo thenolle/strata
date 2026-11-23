@@ -1,0 +1,8 @@
+{
+  "name": "strata-native-shell",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "webview-bun": "2.4.0"
+  }
+}

@@ -1,6 +1,7 @@
 import { StrataError, err, ok, type Guid } from '@strata/core'
 import { Game, type GameAssets } from '@strata/runtime'
 import type { FromFrame, FrameAsset, ToFrame } from './play-protocol.ts'
+import { parseControls } from '@strata/input'
 
 const canvas = document.getElementById('game') as HTMLCanvasElement
 
@@ -28,7 +29,8 @@ async function begin(message: ToFrame): Promise<void> {
 		loadModule: (code) => import(URL.createObjectURL(new Blob([code], { type: 'text/javascript' }))),
 		onStatus: (text) => post({ type: 'status', text }),
 		onLog: (text) => post({ type: 'log', text }),
-		onError: (text) => post({ type: 'error', text })
+		onError: (text) => post({ type: 'error', text }),
+		...(message.controls === undefined ? {} : { controls: parseControls(message.controls) })
 	})
 	if (!created.ok) {
 		post({ type: 'error', text: created.error.message })

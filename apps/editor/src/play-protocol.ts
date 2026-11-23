@@ -13,6 +13,7 @@ export type ToFrame = {
 	readonly scene: string
 	readonly assets: readonly FrameAsset[]
 	readonly scripts: readonly { readonly id: string; readonly code: string }[]
+	readonly controls?: unknown
 }
 
 export type FromFrame =

@@ -8,7 +8,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "audit": "bun tools/audit-deps.ts",
-    "check": "bun run typecheck && bun run audit",
+    "check": "bun run typecheck && bun run audit && bun run lint:ui",
     "playground": "bun tools/playground.ts",
     "editor": "bun tools/editor.ts",
     "editor:check": "bun tools/editor-check.ts",
@@ -16,8 +16,10 @@
     "ide:check": "bun tools/ide-check.ts",
     "hooks": "git config core.hooksPath .githooks",
     "native:check": "bun tools/native-check.ts",
+    "native:setup": "cd tools/native-shell && bun install",
     "serve:dir": "bun tools/static.ts",
-    "lint:commits": "bun tools/lint-commit.ts --range origin/master..HEAD"
+    "lint:commits": "bun tools/lint-commit.ts --range origin/master..HEAD",
+    "lint:ui": "bun tools/lint-ui.ts"
   },
   "dependencies": {
     "@gambrel/bun": "0.2.3",

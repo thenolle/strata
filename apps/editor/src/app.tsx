@@ -3,6 +3,7 @@ import { signal } from '@gambrel/reactivity'
 import type { Child } from '@gambrel/view'
 import { EditorSession } from '@strata/editor-core'
 import type { Project } from '@strata/project'
+import { dialogs, DialogHost } from './dialogs.tsx'
 import { Launcher } from './launcher.tsx'
 import { logger } from './logger.ts'
 import { Workspace } from './workspace.tsx'
@@ -19,8 +20,8 @@ export function App(): Child {
 		return undefined
 	}
 
-	const close = (session: EditorSession): void => {
-		if (session.dirty && !confirm('This project has unsaved changes. Close it without saving?')) return
+	const close = async (session: EditorSession): Promise<void> => {
+		if (session.dirty && !(await dialogs.confirm('This project has unsaved changes. Close it without saving?', { title: 'Unsaved changes', okLabel: 'Close without saving', danger: true }))) return
 		view.set({ kind: 'launcher' })
 		session.dispose()
 	}
@@ -29,8 +30,9 @@ export function App(): Child {
 		<div class="app">
 			{() => {
 				const current = view()
-				return current.kind === 'launcher' ? (<Launcher onOpen={open} />) : (<Workspace session={current.session} onClose={() => close(current.session)} />)
+				return current.kind === 'launcher' ? (<Launcher onOpen={open} />) : (<Workspace session={current.session} onClose={() => void close(current.session)} />)
 			}}
+			<DialogHost />
 		</div>
 	)
 }

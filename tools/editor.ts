@@ -114,7 +114,13 @@ const app = createApp({ development: true })
 	})
 	.post('/api/export/native', async (ctx) => {
 		if (ctx.request.headers.get('origin') !== ctx.url.origin) return reply({ ok: false, error: 'Cross-origin requests are refused' }, 403)
-		const result = await buildNative(new Uint8Array(await ctx.request.arrayBuffer()), ctx.url.searchParams.get('target') ?? '')
+    let settings: unknown = {}
+    try {
+      settings = JSON.parse(ctx.url.searchParams.get('settings') ?? '{}')
+    } catch {
+      return reply({ ok: false, error: 'Invalid settings' }, 400)
+    }
+    const result = await buildNative(new Uint8Array(await ctx.request.arrayBuffer()), ctx.url.searchParams.get('target') ?? '', settings)
 		if (!result.ok) return reply(result, 400)
 		return new Response(result.bytes as unknown as BodyInit, { headers: { 'content-type': 'application/octet-stream', 'content-disposition': `attachment; filename="${result.fileName}"`, 'cache-control': 'no-store' } })
 	})

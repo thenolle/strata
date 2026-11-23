@@ -3,14 +3,14 @@ import { Project, guard, type ProjectStorage } from '@strata/project'
 import { readZip, writeZip, type ZipEntry } from './zip.ts'
 
 /** The only paths a project archive may contain: the files a project is made of. */
-const ALLOWED = /^(?:project\.json|assets\/index\.json|assets\/blobs\/[0-9a-f]{64}|scenes\/[A-Za-z0-9][A-Za-z0-9 _-]{0,63}\.scene\.json)$/
+const ALLOWED = /^(?:project\.json|assets\/index\.json|settings\.json|assets\/blobs\/[0-9a-f]{64}|scenes\/[A-Za-z0-9][A-Za-z0-9 _-]{0,63}\.scene\.json)$/
 
 /**
  * Reads every file of a project out of its storage.
  */
 export async function collectProject(storage: ProjectStorage): Promise<ZipEntry[]> {
 	const files: ZipEntry[] = []
-	for (const path of ['project.json', 'assets/index.json']) {
+	for (const path of ['project.json', 'assets/index.json', 'settings.json']) {
 		const data = await storage.read(path)
 		if (data !== undefined) files.push({ name: path, data })
 	}

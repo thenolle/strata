@@ -161,6 +161,7 @@ export function Explorer(props: {
 				<span class="spacer"></span>
 				<IconButton icon="new-file" title="New script" onClick={() => props.run('script.new', { folder: targetFolder() })} />
 				<IconButton icon="new-folder" title="New folder" onClick={() => props.run('folder.new', { folder: targetFolder() })} />
+				<IconButton icon="graph" title="New graph" onClick={() => props.run('graph.new', { folder: targetFolder() })} />
 				<IconButton icon="import" title="Import files" onClick={() => picker?.click()} />
 				<IconButton
 					icon="trash"

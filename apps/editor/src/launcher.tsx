@@ -7,6 +7,7 @@ import type { Project } from '@strata/project'
 import { createProject, deleteProject, duplicateProject, exportProject, importProject, listProjects, openProject, protectStorage, renameProject, storageInfo, type ProjectSummary, type StorageInfo } from './projects.ts'
 import { askPassword } from './password-dialog.ts'
 import { MIN_PASSWORD, isSealed } from './seal.ts'
+import { dialogs } from './dialogs.tsx'
 
 const MAX_IMPORT_BYTES = 1024 * 1024 * 1024
 
@@ -81,12 +82,12 @@ export function Launcher(props: { readonly onOpen: (project: Project) => Promise
 	}
 
 	const remove = async (summary: ProjectSummary): Promise<void> => {
-		if (!confirm(`Delete "${summary.name}" and everything in it? This cannot be undone. Export it first if you may want it back.`)) return
+		if (!(await dialogs.confirm(`Delete "${summary.name}" and everything in it? This cannot be undone. Export it first if you may want it back.`, { title: 'Delete project', okLabel: 'Delete', danger: true }))) return
 		await act(() => deleteProject(summary.storageName))
 	}
 
 	const rename = async (summary: ProjectSummary): Promise<void> => {
-		const name = prompt('Project name', summary.name)?.trim()
+		const name = (await dialogs.prompt('Project name', { title: 'Rename project', value: summary.name }))?.trim()
 		if (name === undefined || name === '' || name === summary.name) return
 		await act(() => renameProject(summary.storageName, name))
 	}

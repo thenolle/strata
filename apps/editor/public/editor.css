@@ -1,3 +1,29 @@
+:root {
+  color-scheme: dark;
+}
+
+.dark {
+  --background: 220 15% 8%;
+  --foreground: 214 20% 91%;
+  --card: 216 14% 12%;
+  --card-foreground: 214 20% 91%;
+  --popover: 216 14% 12%;
+  --popover-foreground: 214 20% 91%;
+  --primary: 216 100% 68%;
+  --primary-foreground: 220 15% 8%;
+  --secondary: 216 12% 18%;
+  --secondary-foreground: 214 20% 91%;
+  --muted: 216 12% 18%;
+  --muted-foreground: 215 12% 62%;
+  --accent: 216 12% 21%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 62% 45%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 216 10% 22%;
+  --input: 216 10% 24%;
+  --ring: 216 100% 68%;
+}
+
 html,
 body {
   margin: 0;
@@ -1932,4 +1958,196 @@ body {
   color: #e6e8eb;
   font: inherit;
   user-select: text;
+}
+
+.gv-main {
+  position: relative;
+  min-height: 0;
+}
+
+.gv-host {
+  position: absolute;
+  inset: 0;
+}
+
+.gv-code {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  width: min(520px, 45%);
+  margin: 0;
+  padding: 10px 14px;
+  overflow: auto;
+  border-left: 1px solid #2c3037;
+  background: #0f1114;
+  color: #cfd6e0;
+  font: 12px/1.5 ui-monospace, Consolas, monospace;
+}
+
+.gv-ok {
+  margin: 0;
+  padding: 6px 12px;
+  border-top: 1px solid #2c3037;
+  color: #6a9955;
+  font-size: 12px;
+}
+
+.gv-marquee {
+  position: absolute;
+  z-index: 2;
+  border: 1px dashed #5b9dff;
+  background: rgba(91, 157, 255, 0.12);
+  pointer-events: none;
+}
+
+.gv-node[data-error='true'] {
+  border-color: #f14c4c;
+  box-shadow: 0 0 0 1px #f14c4c, 0 6px 18px rgba(0, 0, 0, 0.4);
+}
+
+.dialog-wide {
+  width: min(780px, 94vw);
+  max-height: 90vh;
+  overflow: auto;
+}
+
+.export-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+
+.export-column {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+}
+
+.export-targets {
+  display: grid;
+  gap: 4px;
+}
+
+.export-target {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #cfd6e0;
+  font-size: 13px;
+}
+
+.export-state {
+  margin-left: auto;
+  color: #8b93a0;
+  font-size: 11px;
+}
+
+.export-size {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.dialog-field select, .dialog-field input[type='color'] {
+  padding: 6px 8px;
+  border: 1px solid #3a3f47;
+  border-radius: 6px;
+  background: #14161a;
+  color: #e6e8eb;
+  font: 13px system-ui, sans-serif;
+}
+
+.dialog-host {
+  z-index: 1000;
+}
+
+.dialog-message {
+  margin: 0 0 12px;
+  color: #cfd6e0;
+  white-space: pre-line;
+  line-height: 1.5;
+}
+
+.dialog-input {
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid #3a3f47;
+  border-radius: 6px;
+  background: #14161a;
+  color: #e6e8eb;
+  font: 13px system-ui, sans-serif;
+}
+
+.dialog-error {
+  min-height: 18px;
+  margin: 4px 0 8px;
+  color: #f48771;
+  font-size: 12px;
+}
+
+.dialog-choices {
+  display: grid;
+  gap: 4px;
+  max-height: 50vh;
+  margin: 0 0 10px;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.dialog-choice {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #2c3037;
+  border-radius: 6px;
+  background: #14161a;
+  color: #e6e8eb;
+  font: 13px system-ui, sans-serif;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dialog-choice:hover, .dialog-choice:focus-visible {
+  border-color: #5b9dff;
+  outline: none;
+  background: #1a2230;
+}
+
+.dialog-choice small {
+  color: #8b93a0;
+}
+
+.controls-stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 1px solid #3a3f47;
+  border-radius: 10px;
+  background: #0b0d10;
+  overflow: hidden;
+  touch-action: none;
+}
+
+.controls-item {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font: 600 14px system-ui, sans-serif;
+  transform: translate(-50%, -50%);
+  cursor: grab;
+  user-select: none;
+}
+
+.controls-item[data-selected='true'] {
+  border-color: #5b9dff;
+  box-shadow: 0 0 0 3px rgba(91, 157, 255, 0.35);
 }

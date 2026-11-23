@@ -8,7 +8,11 @@ const targets: Record<string, string> = { 'win32:x64': 'bun-windows-x64', 'linux
 const target = targets[`${process.platform}:${process.arch}`]
 if (target === undefined) throw new Error('This system has no native target')
 const encoder = new TextEncoder()
-const built = await buildNative(writeZip([{ name: 'index.html', data: encoder.encode('<!doctype html><title>t</title>hello') }, { name: 'game.json', data: encoder.encode('{}') }]), target)
+const built = await buildNative(writeZip([
+	{ name: 'index.html', data: encoder.encode('<!doctype html><title>t</title><script src="player.js"></script>') },
+	{ name: 'player.js', data: encoder.encode('console.log(1)') },
+	{ name: 'game.json', data: encoder.encode('{"scene":"","assets":[],"scripts":[]}') }
+]), target, { title: 'Check' })
 if (!built.ok) {
 	console.log('native failed', built.error)
 	process.exit(1)

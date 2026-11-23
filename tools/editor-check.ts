@@ -15,7 +15,9 @@ import * as lib from '../packages/scripting/src/stdlib/index.ts'
 import { isSealed, seal, unseal } from '../apps/editor/src/seal.ts'
 import { compileGraph, listNodes, type GraphData } from '../packages/scripting/src/graph/index.ts'
 import { emptyGraphText } from '../apps/editor/src/graph-view.ts'
-
+import { pngToIco } from '../apps/editor/src/ico.ts'
+import { sanitizeSettings } from '../apps/editor/src/export-settings.ts'
+import { parseControls } from '../packages/input/src/virtual-controls'
 
 console.log('fuzzy', fuzzyScore('sp', 'setPosition'), (fuzzyScore('sp', 'spawn') ?? 0) > (fuzzyScore('sp', 'setPosition') ?? 0), fuzzyScore('xyz', 'setPosition'))
 const expanded = expandSnippet('for (const ${1:item} of ${2:items}) {\n\t$0\n}', '\t')
@@ -231,3 +233,20 @@ const graphFile = await project2.assets.importAsset('Mover.graph', new TextEncod
 const badGraph2 = await project2.assets.importAsset('Bad.graph', new TextEncoder().encode('{}'))
 const replaced = graphFile.ok ? await project2.assets.replaceContent(graphFile.value.id, new TextEncoder().encode(emptyGraphText())) : undefined
 console.log('graph-asset', graphFile.ok ? graphFile.value.kind : 'failed', badGraph2.ok, replaced?.ok)
+
+const fakePng = new Uint8Array(30)
+fakePng[0] = 137
+const icon = pngToIco(fakePng, 16, 16)
+console.log('ico', icon?.length, icon?.[2], icon?.[22], pngToIco(fakePng, 300, 10))
+const clean = sanitizeSettings({ title: 'A\u0001B', width: 99999, version: 'x', targets: ['windows', 'bogus', 'windows'], background: 'red' }, 'Game')
+console.log('settings', clean.title, clean.width, clean.version, clean.targets.join(','), clean.background)
+console.log('zip-mode', readZip(writeZip([{ name: 'run', data: new Uint8Array([1]), mode: 0o755 }])).ok)
+await original.saveSettings({ export: { title: 'x' } })
+const again = await packProject(sourceStorage)
+const copied = await unpackProject(again.ok ? again.value : new Uint8Array(), new MemoryStorage())
+const loadedSettings = copied.ok ? await copied.value.loadSettings() : undefined
+console.log('settings-archive', JSON.stringify(loadedSettings?.ok ? loadedSettings.value : null))
+
+const parsedControls = parseControls({ mode: 'always', opacity: 5, items: [{ kind: 'stick', x: 150, y: 20, size: 5, keys: [] }, { kind: 'button', x: 80, y: 80, size: 90, keys: ['Space', 'bad key!'], label: 'Jump' }, { kind: 'wat' }] })
+console.log('controls', parsedControls.mode, parsedControls.opacity, parsedControls.items.length, parsedControls.items[0]?.x, parsedControls.items[0]?.size, parsedControls.items[0]?.keys.join(','), parsedControls.items[1]?.keys.join(','))
+console.log('controls-default', parseControls(undefined).items.length, parseControls(undefined).mode)

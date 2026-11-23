@@ -3,10 +3,8 @@ import { DisposableStore, type Disposable, type Entity, type Guid } from '@strat
 import type { EditorSession } from '@strata/editor-core'
 import { MenuRegistry } from '@strata/menus'
 import SCRIPT_TEMPLATE from './ide/script-template.txt'
-import { download } from './download.ts'
-import { buildWebGame, exportWebZip, slugName } from './export-web.ts'
 import { emptyGraphText } from './graph-view.ts'
-import { writeZip } from './zip.ts'
+import { dialogs } from './dialogs.tsx'
 
 export interface StudioHooks {
 	readonly save: () => Promise<void>
@@ -17,7 +15,9 @@ export interface StudioHooks {
 	readonly openScript: (asset: Guid) => void
 	readonly revealFolder: (path: string) => void
 	readonly openGraph: (asset: Guid) => void
+	readonly openExport: () => void
 	readonly announce: (text: string) => void
+	readonly openControls: () => void
 }
 
 export interface Studio extends Disposable {
@@ -47,8 +47,6 @@ function worldPoint(args: unknown): { readonly x: number; readonly y: number } |
 	if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)) return undefined
 	return { x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100 }
 }
-
-const NATIVE_TARGETS: Readonly<Record<string, string>> = { windows: 'bun-windows-x64', linux: 'bun-linux-x64', 'linux-arm': 'bun-linux-arm64', mac: 'bun-darwin-arm64', 'mac-intel': 'bun-darwin-x64' }
 
 /**
  * Registers Studio's commands, default shortcuts, menus and the context keys that gate them.
@@ -118,11 +116,12 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 	}
 	const leaveScene = async (): Promise<boolean> => {
 		if (!session.dirty) return true
-		if (confirm(`Save changes to "${session.scene}" before leaving it?`)) {
+		const choice = await dialogs.choose<'save' | 'discard'>(`"${session.scene}" has unsaved changes.`, [{ label: 'Save and continue', value: 'save' }, { label: 'Discard the changes', value: 'discard' }], { title: 'Unsaved changes' })
+		if (choice === 'save') {
 			await hooks.save()
 			return !session.dirty
 		}
-		return confirm('Discard the unsaved changes?')
+		return choice === 'discard'
 	}
 	const instantiatePrefab = async (args: unknown): Promise<void> => {
 		const record = assetOf(args)
@@ -162,14 +161,15 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 		const asset = assetOf(args)
 		const uses = session.assetUsage(asset.id)
 		const warning = uses > 0 ? `\n\nIt is used by ${uses} component${uses === 1 ? '' : 's'} in the scene, which will lose it.` : ''
-		if (!confirm(`Delete "${asset.name}"?${warning}`)) return
+		if (!(await dialogs.confirm(`Delete "${asset.name}"?${warning}`, { title: 'Delete file', okLabel: 'Delete', danger: true }))) return
 		const result = await session.project.assets.remove(asset.id)
 		if (!result.ok) return fail(result.error.message)
 		session.notifyAssetsChanged()
 	})
 	command('asset.rename', 'Rename Asset', 'Asset', async (args) => {
 		const asset = assetOf(args)
-		const name = prompt('New name', asset.name)
+		const name = await dialogs.prompt('New name', { title: 'Rename file', value: asset.name })
+		if (!name) return
 		if (name === null || name.trim() === asset.name) return
 		const result = await session.project.assets.rename(asset.id, name)
 		if (!result.ok) return fail(result.error.message)
@@ -220,7 +220,7 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 		if (entity === undefined) return
 		const text = session.prefabText(entity)
 		if (text === undefined) return fail('This entity cannot be saved as a prefab')
-		const name = prompt('Prefab name', session.nameOf(entity))?.trim()
+		const name = (await dialogs.prompt('Prefab name', { title: 'Save as prefab', value: session.nameOf(entity) }))?.trim()
 		if (name === undefined || name === '') return
 		await session.project.assets.createFolder('Prefabs')
 		const result = await session.project.assets.importAsset(`${name}.prefab`, new TextEncoder().encode(text), 'Prefabs')
@@ -263,7 +263,8 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 
 	command('folder.new', 'New Folder', 'Asset', async (args) => {
 		const parent = folderArg(args) ?? ''
-		const name = prompt(parent === '' ? 'Folder name' : `New folder in ${parent}`)
+		const name = await dialogs.prompt(parent === '' ? 'Folder name' : `New folder in ${parent}`, { title: 'New folder' })
+		if (!name) return
 		if (name === null || name.trim() === '') return
 		const path = parent === '' ? name.trim() : `${parent}/${name.trim()}`
 		const result = await session.project.assets.createFolder(path)
@@ -274,7 +275,8 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 	command('folder.rename', 'Rename Folder', 'Asset', async (args) => {
 		const folder = folderArg(args)
 		if (folder === undefined || folder === '') return fail('Choose a folder in the Explorer first')
-		const name = prompt('New folder name', folder.slice(folder.lastIndexOf('/') + 1))
+		const name = await dialogs.prompt('New folder name', { title: 'Rename folder', value: folder.slice(folder.lastIndexOf('/') + 1) })
+		if (!name) return
 		if (name === null || name.trim() === '') return
 		const result = await session.project.assets.renameFolder(folder, name)
 		if (!result.ok) return fail(result.error.message)
@@ -286,7 +288,7 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 		const inside = session.project.assets.list().filter((asset) => asset.folder === folder || asset.folder.startsWith(`${folder}/`))
 		const used = inside.reduce((total, asset) => total + session.assetUsage(asset.id), 0)
 		const warning = used > 0 ? `\n\n${used} component${used === 1 ? '' : 's'} in the scene use these files and will lose them.` : ''
-		if (!confirm(`Delete the folder "${folder}" and the ${inside.length} file${inside.length === 1 ? '' : 's'} in it?${warning}`)) return
+		if (!(await dialogs.confirm(`Delete the folder "${folder}" and the ${inside.length} file${inside.length === 1 ? '' : 's'} in it?${warning}`, { title: 'Delete folder', okLabel: 'Delete', danger: true }))) return
 		const result = await session.project.assets.deleteFolder(folder)
 		if (!result.ok) return fail(result.error.message)
 		session.notifyAssetsChanged()
@@ -296,14 +298,14 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 
 	command('scene.switch', 'Switch Scene', 'Scene', async (args) => {
 		const names = await session.scenes()
-		const name = sceneArg(args) ?? prompt(`Switch to which scene?\n${names.join(', ')}`)?.trim()
+		const name = sceneArg(args) ?? (await dialogs.choose('Switch to which scene?', names.map((value) => ({ label: value, value })), { title: 'Switch scene' }))
 		if (name === undefined || name === '' || name === session.scene) return
 		if (!(await leaveScene())) return
 		const result = await session.switchScene(name)
 		if (!result.ok) return fail(result.error.message)
 	})
 	command('scene.new', 'New Scene', 'Scene', async () => {
-		const name = prompt('New scene name')?.trim()
+		const name = (await dialogs.prompt('New scene name', { title: 'New scene', validate: (value) => (value.trim() === '' ? 'Enter a name' : undefined) }))?.trim()
 		if (name === undefined || name === '') return
 		const created = await session.newScene(name)
 		if (!created.ok) return fail(created.error.message)
@@ -312,16 +314,16 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 		if (!result.ok) return fail(result.error.message)
 	})
 	command('scene.rename', 'Rename Scene', 'Scene', async () => {
-		const name = prompt('New scene name', session.scene)?.trim()
+		const name = (await dialogs.prompt('New scene name', { title: 'Rename scene', value: session.scene }))?.trim()
 		if (name === undefined || name === '' || name === session.scene) return
 		const result = await session.renameScene(session.scene, name)
 		if (!result.ok) return fail(result.error.message)
 	})
 	command('scene.delete', 'Delete Scene', 'Scene', async (args) => {
 		const names = await session.scenes()
-		const name = sceneArg(args) ?? prompt(`Delete which scene?\n${names.join(', ')}`)?.trim()
+		const name = sceneArg(args) ?? (await dialogs.choose('Delete which scene?', names.map((value) => ({ label: value, value })), { title: 'Delete scene' }))
 		if (name === undefined || name === '') return
-		if (!confirm(`Delete the scene "${name}"? This cannot be undone.`)) return
+		if (!(await dialogs.confirm(`Delete the scene "${name}"? This cannot be undone.`, { title: 'Delete scene', okLabel: 'Delete', danger: true }))) return
 		const result = await session.deleteScene(name)
 		if (!result.ok) return fail(result.error.message)
 	})
@@ -343,37 +345,8 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 		hooks.openGraph(record.id)
 	})
 
-	command('game.exportWeb', 'Export as Web Game', 'Game', async () => {
-		hooks.announce('Building the web export…')
-		const result = await exportWebZip(session)
-		if (!result.ok) {
-			hooks.announce('')
-			return fail(result.error.message)
-		}
-		download(result.value.fileName, result.value.bytes, 'application/zip')
-		hooks.announce(`Exported ${result.value.fileName}. Unzip it and put the folder on any web server.`)
-	})
-	command('game.exportNative', 'Export as Native Executable', 'Game', async () => {
-		const guess = /Windows/.test(navigator.userAgent) ? 'windows' : /Mac/.test(navigator.userAgent) ? 'mac' : 'linux'
-		const choice = prompt(`Build for which system?\n${Object.keys(NATIVE_TARGETS).join(', ')}`, guess)?.trim() ?? ''
-		const target = NATIVE_TARGETS[choice]
-		if (choice === '') return
-		if (target === undefined) return fail(`Unknown system "${choice}"`)
-		hooks.announce(`Building the ${choice} executable… the first build for a system downloads its runtime and can take a minute.`)
-		const web = await buildWebGame(session)
-		if (!web.ok) {
-			hooks.announce('')
-			return fail(web.error.message)
-		}
-		const reply = await fetch(`/api/export/native?target=${target}`, { method: 'POST', body: writeZip(web.value).slice() })
-		if (!reply.ok) {
-			hooks.announce('')
-			const info = (await reply.json().catch(() => ({}))) as { readonly error?: string }
-			return fail(info.error ?? 'The build failed')
-		}
-		download(`${slugName(session.project.name)}-${choice}${choice === 'windows' ? '.exe' : ''}`, new Uint8Array(await reply.arrayBuffer()))
-		hooks.announce(choice === 'windows' ? 'Done. Run the .exe; it opens the game in your browser.' : 'Done. Run "chmod +x" on the file, then start it; it opens the game in your browser.')
-	})
+	command('game.export', 'Export Game…', 'Game', () => hooks.openExport())
+	command('game.controls', 'Edit Touch Controls…', 'Game', () => hooks.openControls())
 
 	const added = keybindings.addAll([
 		{ keys: 'ctrl+shift+p', command: 'workbench.action.showCommands' },
