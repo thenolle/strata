@@ -7,6 +7,7 @@ import { emptyGraphText } from './graph-view.ts'
 import { dialogs } from './dialogs.tsx'
 import { prettyKeys } from './shortcuts.ts'
 import { eulerToQuat } from './euler.ts'
+import { renameSceneType, setSceneType, type SceneType } from './scene-types.ts'
 
 export interface StudioHooks {
 	readonly save: () => Promise<void>
@@ -21,6 +22,7 @@ export interface StudioHooks {
 	readonly announce: (text: string) => void
 	readonly openControls: () => void
 	readonly resetLayout: () => void
+	readonly openIde: () => void
 }
 
 export interface Studio extends Disposable {
@@ -148,6 +150,11 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 		session.setTransform(entity, { z: extra.z ?? 0, ...(extra.tilt === undefined ? {} : { qx: q[0], qy: q[1], qz: q[2], qw: q[3] }) })
 	})
 
+	const SCENE_CHOICES = [
+		{ label: '2D scene', value: '2d' as SceneType, detail: 'sprites, platforms and 2D physics' },
+		{ label: '3D scene', value: '3d' as SceneType, detail: 'meshes, lights and a 3D camera' }
+	]
+
 	// Commands
 
 	const command = (id: string, title: string, category: string, run: (args?: unknown) => void | Promise<void>, when?: string): void => {
@@ -170,6 +177,7 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 	command('view.mode3d', 'Switch to 3D View', 'View', () => contexts.set('viewMode', '3d'))
 	command('view.resetLayout', 'Reset Layout', 'View', () => hooks.resetLayout())
 	command('view.toggleAutosave', 'Autosave', 'View', () => contexts.set('autosave', contexts.get('autosave') !== true))
+	command('view.script', 'Open Script Editor', 'View', () => hooks.openIde())
 
 	command('asset.addToScene', 'Add Asset to Scene', 'Asset', async (args) => {
 		if (session.project.assets.get(assetArg(args) as Guid)?.kind === 'prefab') return instantiatePrefab(args)
@@ -340,17 +348,30 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 	command('scene.new', 'New Scene', 'Scene', async () => {
 		const name = (await dialogs.prompt('New scene name', { title: 'New scene', validate: (value) => (value.trim() === '' ? 'Enter a name' : undefined) }))?.trim()
 		if (name === undefined || name === '') return
+		const type = await dialogs.choose<SceneType>('What kind of scene is it?', SCENE_CHOICES, { title: `New scene "${name}"` })
+		if (type === undefined) return
 		const created = await session.newScene(name)
 		if (!created.ok) return fail(created.error.message)
 		if (!(await leaveScene())) return
 		const result = await session.switchScene(name)
 		if (!result.ok) return fail(result.error.message)
+		await setSceneType(session.project, name, type)
+		contexts.set('viewMode', type)
+		if (type === '3d') for (const id of ['entity.addEnvironment', 'entity.addSun', 'entity.addCamera3D']) await commands.execute(id)
 	})
 	command('scene.rename', 'Rename Scene', 'Scene', async () => {
 		const name = (await dialogs.prompt('New scene name', { title: 'Rename scene', value: session.scene }))?.trim()
 		if (name === undefined || name === '' || name === session.scene) return
-		const result = await session.renameScene(session.scene, name)
+		const previous = session.scene
+		const result = await session.renameScene(previous, name)
 		if (!result.ok) return fail(result.error.message)
+		await renameSceneType(session.project, previous, name)
+	})
+	command('scene.setType', 'Change Scene Type…', 'Scene', async () => {
+		const type = await dialogs.choose<SceneType>(`"${session.scene}" is currently a ${contexts.get('viewMode') === '3d' ? '3D' : '2D'} scene.`, SCENE_CHOICES, { title: 'Scene type' })
+		if (type === undefined) return
+		await setSceneType(session.project, session.scene, type)
+		contexts.set('viewMode', type)
 	})
 	command('scene.delete', 'Delete Scene', 'Scene', async (args) => {
 		const names = await session.scenes()
@@ -480,6 +501,7 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 	contribute('menubar/file', { command: 'game.export', group: '2_export@1' })
 	contribute('menubar/file', { command: 'game.controls', group: '2_export@2' })
 	contribute('menubar/file', { command: 'project.close', group: '9_close' })
+
 	contribute('menubar/edit', { command: 'edit.undo', group: '1_history@1' })
 	contribute('menubar/edit', { command: 'edit.redo', group: '1_history@2' })
 	contribute('menubar/edit', { command: 'edit.cut', group: '2_clipboard@1' })
@@ -488,6 +510,25 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 	contribute('menubar/edit', { command: 'entity.duplicate', group: '3_modify@1' })
 	contribute('menubar/edit', { command: 'entity.delete', group: '3_modify@2' })
 	contribute('menubar/edit', { command: 'edit.selectAll', group: '3_modify@3' })
+
+	contribute('menubar/project', { command: 'script.new', group: '1_new@1' })
+	contribute('menubar/project', { command: 'graph.new', group: '1_new@2' })
+	contribute('menubar/project', { command: 'game.controls', group: '2_game' })
+
+	contribute('menubar/help', { command: 'workbench.action.showCommands', group: '1_help@1' })
+	contribute('menubar/help', { command: 'help.about', group: '1_help@2' })
+	contribute('menubar/help', { command: 'help.shortcuts', group: '2_info' })
+
+	contribute('menubar/view', { command: 'view.toggleAutosave', title: 'Autosave', group: '2_layout@0', toggled: 'autosave' })
+	contribute('menubar/view', { command: 'view.script', group: '1_view@4' })
+	contribute('menubar/view', { command: 'view.toggleGrid', title: 'Show Grid', group: '1_view@1', toggled: 'gridVisible' })
+	contribute('menubar/view', { command: 'view.mode2d', group: '1_view@2' })
+	contribute('menubar/view', { command: 'view.mode3d', group: '1_view@3' })
+	contribute('menubar/view', { command: 'view.resetLayout', group: '2_layout' })
+	contribute('menubar/view', { command: 'workbench.action.showCommands', group: '3_commands' })
+
+	contribute('menubar/scene', { submenu: 'node3d/create', title: 'Create 3D', group: '2_entity@5' })
+	contribute('menubar/scene', { command: 'scene.setType', group: '1_scene@5' })
 	contribute('menubar/scene', { command: 'scene.new', group: '1_scene@1' })
 	contribute('menubar/scene', { command: 'scene.switch', group: '1_scene@2' })
 	contribute('menubar/scene', { command: 'scene.rename', group: '1_scene@3' })
@@ -496,19 +537,6 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 	contribute('menubar/scene', { command: 'entity.addPlayer', group: '2_entity@2' })
 	contribute('menubar/scene', { command: 'entity.addPlatform', group: '2_entity@3' })
 	contribute('menubar/scene', { command: 'entity.addCamera', group: '2_entity@4' })
-	contribute('menubar/project', { command: 'script.new', group: '1_new@1' })
-	contribute('menubar/project', { command: 'graph.new', group: '1_new@2' })
-	contribute('menubar/project', { command: 'game.controls', group: '2_game' })
-	contribute('menubar/view', { command: 'view.toggleGrid', title: 'Show Grid', group: '1_view@1', toggled: 'gridVisible' })
-	contribute('menubar/view', { command: 'view.mode2d', group: '1_view@2' })
-	contribute('menubar/view', { command: 'view.mode3d', group: '1_view@3' })
-	contribute('menubar/view', { command: 'view.resetLayout', group: '2_layout' })
-	contribute('menubar/view', { command: 'workbench.action.showCommands', group: '3_commands' })
-	contribute('menubar/help', { command: 'workbench.action.showCommands', group: '1_help@1' })
-	contribute('menubar/help', { command: 'help.about', group: '1_help@2' })
-	contribute('menubar/help', { command: 'help.shortcuts', group: '2_info' })
-	contribute('menubar/view', { command: 'view.toggleAutosave', title: 'Autosave', group: '2_layout@0', toggled: 'autosave' })
-	contribute('menubar/scene', { submenu: 'node3d/create', title: 'Create 3D', group: '2_entity@5' })
 
 	return { contexts, commands, keybindings, menus, dispose: () => store.dispose() }
 }

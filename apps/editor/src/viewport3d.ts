@@ -65,7 +65,7 @@ function hex(value: string): readonly number[] {
  */
 export function startViewport3D(options: ViewportOptions): () => void {
 	const { host, session } = options
-	if (getComputedStyle(host).position === 'static') host.style.position = 'relative'
+	if (!host.isConnected || getComputedStyle(host).position === 'static') host.style.position = 'relative'
 	const toolbar = host.querySelector<HTMLElement>('.viewport-toolbar')
 	if (toolbar !== null) {
 		if (getComputedStyle(toolbar).position === 'static') toolbar.style.position = 'relative'

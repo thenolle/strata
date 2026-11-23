@@ -7,6 +7,7 @@ import { dialogs, DialogHost } from './dialogs.tsx'
 import { Launcher } from './launcher.tsx'
 import { logger } from './logger.ts'
 import { Workspace } from './workspace.tsx'
+import { lastSceneOf } from './scene-types.ts'
 
 type View = { readonly kind: 'launcher' } | { readonly kind: 'workspace'; readonly session: EditorSession }
 
@@ -14,7 +15,13 @@ export function App(): Child {
 	const view = signal<View>({ kind: 'launcher' })
 
 	const open = async (project: Project): Promise<string | undefined> => {
-		const session = await EditorSession.open(project, logger.child('session'))
+		let scene: string | undefined
+		const remembered = await lastSceneOf(project)
+		if (remembered !== undefined) {
+			const listed = await project.listScenes()
+			if (listed.ok && listed.value.includes(remembered)) scene = remembered
+		}
+		const session = await EditorSession.open(project, logger.child('session'), scene)
 		if (!session.ok) return session.error.message
 		view.set({ kind: 'workspace', session: session.value })
 		return undefined

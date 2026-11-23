@@ -16,7 +16,8 @@ import { Workbench } from './workbench.tsx'
 import { applyLayout, DEFAULT_LAYOUT, loadLayout, saveLayout, type Layout } from './layout.ts'
 import { attachSplitter } from './splitter.ts'
 import { IconButton } from './ui.tsx'
-import { VIEWPORTS, loadMode, saveMode, type ViewMode } from './viewport-modes.ts'
+import { VIEWPORTS, type ViewMode } from './viewport-modes.ts'
+import { inferSceneType, nodeGlyph, rememberScene, sceneTypeOf, sceneTypes, type SceneType } from './scene-types.ts'
 import type { ViewportOptions } from './viewport.ts'
 import { GraphEditor } from './graph-editor.tsx'
 import { ExportDialog } from './export-dialog.tsx'
@@ -57,6 +58,9 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 	const ideRequest = signal<{ readonly asset: Guid; readonly n: number } | undefined>(undefined)
 	const reveal = signal<string | undefined>(undefined)
 	const scenes = signal<readonly string[]>([session.scene])
+	const types = signal<Record<string, SceneType>>({})
+	const refreshTypes = (): void => void sceneTypes(session.project).then((value) => types.set(value))
+	refreshTypes()
 	const graphAsset = signal<Guid | undefined>(undefined)
 	const exporting = signal(false)
 	const controlsOpen = signal(false)
@@ -156,8 +160,9 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 			if (rootElement !== undefined) applyLayout(rootElement, layout)
 			saveLayout(layout)
 		},
+		openIde: () => ide.set(true),
 	})
-	studio.contexts.set('viewMode', loadMode())
+	studio.contexts.set('viewMode', inferSceneType(session))
 	studio.contexts.set('autosave', readAutosave())
 	const filter = signal('')
 	const viewportOptions = (host: HTMLElement): ViewportOptions => ({
@@ -215,11 +220,15 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 				fieldRevision.update((value) => value + 1)
 				if (kind !== 'transform') outlineRevision.update((value) => value + 1)
 				if (kind === 'scene' || kind === 'saved') refreshScenes()
+				if (kind === 'scene') {
+					void rememberScene(session.project, session.scene)
+					void sceneTypeOf(session).then((type) => studio.contexts.set('viewMode', type))
+					refreshTypes()
+				}
 				selected.set(session.selection)
 			})
 			const contextSubscription = studio.contexts.changed.subscribe((name) => {
 				if (name === 'viewMode') {
-					saveMode(studio.contexts.get('viewMode') === '3d' ? '3d' : '2d')
 					mountViewport()
 				}
 				if (name === 'viewMode' || name === 'tool') toolbar.update((value) => value + 1)
@@ -288,7 +297,21 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 						</button>
 					))}
 				</nav>
-				{() => (<select class="scene-select" title="Scene" aria-label="Scene" onChange={(event) => run('scene.switch', { name: (event.target as HTMLSelectElement).value })}>{scenes().map((name) => (<option value={name} selected={name === session.scene}>{name}</option>))}</select>)}
+				<span class="spacer"></span>
+				{() => {
+					toolbar()
+					const mode = studio.contexts.get('viewMode')
+					return (
+						<nav class="workspace-tabs" aria-label="Workspace">
+							<button type="button" class="workspace-tab" data-active={String(mode !== '3d')} onClick={() => run('view.mode2d')}>2D</button>
+							<button type="button" class="workspace-tab" data-active={String(mode === '3d')} onClick={() => run('view.mode3d')}>3D</button>
+							<button type="button" class="workspace-tab" onClick={() => run('view.script')}>Script</button>
+						</nav>
+					)
+				}}
+				<Button size="sm" onClick={() => run('play.start')}>▶ Play</Button>
+				<span class="spacer"></span>
+				{() => (<select class="scene-select" title="Scene" aria-label="Scene" onChange={(event) => run('scene.switch', { name: (event.target as HTMLSelectElement).value })}>{scenes().map((name) => (<option value={name} selected={name === session.scene}>{`${(types()[name] ?? '2d') === '3d' ? '3D' : '2D'} · ${name}`}</option>))}</select>)}
 				<span class="dirty">
 					{() => {
 						fieldRevision()
@@ -297,13 +320,11 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 						return session.dirty ? 'Unsaved changes' : saveState()
 					}}
 				</span>
-				<span class="spacer"></span>
-				<Button size="sm" onClick={() => run('play.start')}>▶ Play</Button>
 				<Button size="sm" variant="ghost" onClick={() => run('game.export')}>Export…</Button>
 				<Button size="sm" variant="outline" onClick={() => run('file.save')}>Save</Button>
 			</header>
 			<aside class="panel outline" aria-label="Hierarchy" data-menu="outline/context">
-				<div class="panel-title">Scene</div>
+				<div class="panel-title">{() => { toolbar(); return `Scene · ${studio.contexts.get('viewMode') === '3d' ? '3D' : '2D'}` }}</div>
 				<input class="panel-filter" type="search" placeholder="Filter entities" aria-label="Filter entities" onInput={(event) => filter.set((event.target as HTMLInputElement).value)} />
 				<div class="panel-actions">
 					<Button size="sm" onClick={() => run('entity.add')}>Add entity</Button>
@@ -328,7 +349,7 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 									session.select(row.entity)
 									anchor = row.entity
 								}
-							}}>{row.name === '' ? '(unnamed)' : row.name}</li>))}
+							}}><span class="row-icon">{nodeGlyph(session, row.entity)}</span>{row.name === '' ? '(unnamed)' : row.name}</li>))}
 						</ul>
 					)
 				}}
@@ -347,9 +368,6 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 							<IconButton icon="rotate" title="Rotate (E)" active={tool === 'rotate'} onClick={() => run('tool.rotate')} />
 							<IconButton icon="scale" title="Scale (R)" active={tool === 'scale'} onClick={() => run('tool.scale')} />
 							<IconButton icon="rect" title="Rect: resize with handles (T)" active={tool === 'rect'} onClick={() => run('tool.rect')} />
-							<span class="toolbar-divider"></span>
-							<button type="button" class="mode-button" data-active={String(mode !== '3d')} title="2D view" onClick={() => run('view.mode2d')}>2D</button>
-							<button type="button" class="mode-button" data-active={String(mode === '3d')} title="3D view" onClick={() => run('view.mode3d')}>3D</button>
 							{mode === '3d' ? (
 								<>
 									<span class="toolbar-divider"></span>
@@ -372,7 +390,11 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 				if (asset.kind === 'graph') run('graph.edit', { asset: asset.id })
 			}} output />
 			<aside class="panel inspector" aria-label="Inspector"><div class="panel-title">Inspector</div><Inspector session={session} selected={selected} revision={fieldRevision} run={(id) => run(id)} /></aside>
-			<footer class="workspace-status">{status}</footer>
+			<footer class="workspace-status">
+				<span>{status}</span>
+				<span class="spacer"></span>
+				<span>{() => { toolbar(); fieldRevision(); return `${session.scene} · ${studio.contexts.get('viewMode') === '3d' ? '3D' : '2D'}` }}</span>
+			</footer>
 			{() => paletteOpen() ? (<CommandPalette registry={studio.commands} keybindings={studio.keybindings} onRun={(id) => {
 				setPalette(false)
 				run(id)

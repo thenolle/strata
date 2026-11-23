@@ -57,3 +57,4 @@
 - 3D editor: mesh, light and camera nodes, lit viewport, move, rotate and scale gizmos, snapping, view presets, and full 3D transform fields in the Inspector.
 - Play and exports run 3D scenes: lit meshes, lights and 3D cameras on WebGL 2.
 - Environment node (background, ambient light, fog) in the 3D editor, Play and exports. The editor and the game share one set of 3D shaders and meshes.
+- Scenes are 2D or 3D, chosen when created. Projects reopen on the last scene, with the view matching its type. Header tabs for 2D, 3D and Script, scene icons, collapsible inspector sections and a refreshed look.

@@ -2289,3 +2289,100 @@ body {
   font: 12px system-ui, sans-serif;
   pointer-events: none;
 }
+
+.workspace-bar {
+  height: 42px;
+  padding: 0 10px;
+  gap: 8px;
+  border-bottom: 1px solid #14161a;
+  background: #1e222a;
+}
+
+.workspace-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 8px;
+  background: #14161a;
+}
+
+.workspace-tab {
+  padding: 4px 14px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #9aa4b2;
+  font: 600 12px system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.workspace-tab:hover {
+  color: #e6e8eb;
+}
+
+.workspace-tab[data-active='true'] {
+  background: #478cbf;
+  color: #fff;
+}
+
+.panel {
+  background: #1b1f26;
+}
+
+.row, .tree-row {
+  margin: 0 4px;
+  border-radius: 4px;
+}
+
+.row[data-selected='true'], .tree-row[data-selected='true'] {
+  background: #2c5a85;
+  color: #fff;
+}
+
+.row-icon {
+  display: inline-block;
+  width: 16px;
+  margin-right: 6px;
+  color: #7fb4e6;
+  text-align: center;
+}
+
+.component {
+  margin: 8px 8px 0;
+  overflow: hidden;
+  border: 1px solid #2c3037;
+  border-radius: 6px;
+  background: #1e222a;
+}
+
+.component-head {
+  display: flex;
+  align-items: center;
+  padding: 4px 6px;
+  background: #262b33;
+}
+
+.component-toggle {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: #e6e8eb;
+  font: 600 12px system-ui, sans-serif;
+  text-align: left;
+  cursor: pointer;
+}
+
+.component-body {
+  padding: 6px 8px 8px;
+}
+
+.workspace-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border-top: 1px solid #14161a;
+  background: #1e222a;
+  color: #8b93a0;
+  font-size: 12px;
+}
