@@ -2151,3 +2151,38 @@ body {
   border-color: #5b9dff;
   box-shadow: 0 0 0 3px rgba(91, 157, 255, 0.35);
 }
+
+.workspace-title {
+  margin-right: 6px;
+  color: #e6e8eb;
+}
+
+.menubar {
+  display: flex;
+  gap: 2px;
+}
+
+.menubar-item {
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #cfd6e0;
+  font: 13px system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.menubar-item:hover, .menubar-item:focus-visible {
+  background: #262b33;
+  color: #fff;
+  outline: none;
+}
+
+.panel-title {
+  padding: 7px 10px;
+  border-bottom: 1px solid #2c3037;
+  color: #8b93a0;
+  font: 600 11px/1 system-ui, sans-serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}

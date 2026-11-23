@@ -138,6 +138,11 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 		openExport: () => exporting.set(true),
 		announce: (text) => notice.set(text),
 		openControls: () => controlsOpen.set(true),
+		resetLayout: () => {
+			Object.assign(layout, DEFAULT_LAYOUT)
+			if (rootElement !== undefined) applyLayout(rootElement, layout)
+			saveLayout(layout)
+		},
 	})
 	studio.contexts.set('viewMode', loadMode())
 	const viewportOptions = (host: HTMLElement): ViewportOptions => ({
@@ -175,6 +180,12 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 
 	const run = (id: string, args?: unknown): void => {
 		void studio.commands.execute(id, args).then((result) => notice.set(result.ok ? '' : result.error.message))
+	}
+
+	const MENUS: readonly (readonly [string, string])[] = [['File', 'menubar/file'], ['Edit', 'menubar/edit'], ['Scene', 'menubar/scene'], ['Project', 'menubar/project'], ['View', 'menubar/view'], ['Help', 'menubar/help']]
+	const openBar = (button: HTMLElement, menuId: string, keyboard: boolean): void => {
+		const rect = button.getBoundingClientRect()
+		openMenu({ menuId, x: rect.left, y: rect.bottom + 2, keyboard })
 	}
 
 	return (
@@ -236,11 +247,15 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 			})
 		}}>
 			<header class="workspace-bar">
-				<strong>{session.project.name}</strong>
+				<strong class="workspace-title">{session.project.name}</strong>
+				<nav class="menubar" aria-label="Menu">
+					{MENUS.map(([label, id]) => (
+						<button type="button" class="menubar-item" aria-haspopup="menu" onClick={(event) => openBar(event.currentTarget as HTMLElement, id, (event as unknown as MouseEvent).detail === 0)}>
+							{label}
+						</button>
+					))}
+				</nav>
 				{() => (<select class="scene-select" title="Scene" aria-label="Scene" onChange={(event) => run('scene.switch', { name: (event.target as HTMLSelectElement).value })}>{scenes().map((name) => (<option value={name} selected={name === session.scene}>{name}</option>))}</select>)}
-				<Button size="sm" variant="ghost" onClick={() => run('scene.new')}>+ Scene</Button>
-				<Button size="sm" variant="ghost" onClick={() => run('scene.rename')}>Rename</Button>
-				<Button size="sm" variant="ghost" onClick={() => run('scene.delete')}>Delete scene</Button>
 				<span class="dirty">
 					{() => {
 						fieldRevision()
@@ -250,14 +265,12 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 					}}
 				</span>
 				<span class="spacer"></span>
-				<Button size="sm" onClick={() => run('play.start')}>Play</Button>
+				<Button size="sm" onClick={() => run('play.start')}>▶ Play</Button>
 				<Button size="sm" variant="ghost" onClick={() => run('game.export')}>Export…</Button>
-				<Button size="sm" variant="ghost" onClick={() => setPalette(true)}>Commands</Button>
-				<Button size="sm" variant="ghost" onClick={() => run('game.controls')}>Controls</Button>
-				<Button size="sm" onClick={() => run('file.save')}>Save</Button>
-				<Button size="sm" variant="outline" onClick={() => run('project.close')}>Close project</Button>
+				<Button size="sm" variant="outline" onClick={() => run('file.save')}>Save</Button>
 			</header>
 			<aside class="panel outline" aria-label="Hierarchy" data-menu="outline/context">
+				<div class="panel-title">Scene</div>
 				<div class="panel-actions">
 					<Button size="sm" onClick={() => run('entity.add')}>Add entity</Button>
 					<Button size="sm" variant="outline" disabled={() => selected() === undefined} onClick={() => run('entity.addChild')}>Add child</Button>
@@ -313,7 +326,7 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 				if (asset.kind === 'script') run('script.edit', { asset: asset.id })
 				if (asset.kind === 'graph') run('graph.edit', { asset: asset.id })
 			}} />
-			<aside class="panel inspector" aria-label="Inspector"><Inspector session={session} selected={selected} revision={fieldRevision} run={(id) => run(id)} /></aside>
+			<aside class="panel inspector" aria-label="Inspector"><div class="panel-title">Inspector</div><Inspector session={session} selected={selected} revision={fieldRevision} run={(id) => run(id)} /></aside>
 			<footer class="workspace-status">{status}</footer>
 			{() => paletteOpen() ? (<CommandPalette registry={studio.commands} keybindings={studio.keybindings} onRun={(id) => {
 				setPalette(false)

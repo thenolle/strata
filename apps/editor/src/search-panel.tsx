@@ -2,6 +2,7 @@
 import { onCleanup, signal } from '@gambrel/reactivity'
 import type { Child } from '@gambrel/view'
 import { findAll, type FindOptions } from './ide/editing.ts'
+import { dialogs } from './dialogs.tsx'
 
 interface Hit {
 	readonly path: string
@@ -50,9 +51,11 @@ export function SearchPanel(props: {
 	}
 	onCleanup(() => clearTimeout(timer))
 
-	const replaceAll = (): void => {
+	const replaceAll = async (): Promise<void> => {
 		const paths = new Set(hits.peek().map((hit) => hit.path))
-		if (paths.size === 0 || !confirm(`Replace ${hits.peek().length} matches in ${paths.size} script${paths.size === 1 ? '' : 's'}?`)) return
+		if (paths.size === 0) return
+		const count = hits.peek().length
+		if (!(await dialogs.confirm(`Replace ${count} match${count === 1 ? '' : 'es'} in ${paths.size} script${paths.size === 1 ? '' : 's'}?`, { title: 'Replace in all scripts', okLabel: 'Replace', danger: true }))) return
 		const changes = new Map<string, string>()
 		for (const path of paths) {
 			const source = files[path] ?? ''
@@ -108,9 +111,7 @@ export function SearchPanel(props: {
 				{toggle('.*', 'Regular expression', 'regex')}
 			</div>
 			{field('Replace with', replacement)}
-			<button type="button" class="wb-button" onClick={replaceAll}>
-				Replace all
-			</button>
+			<button type="button" class="wb-button" onClick={() => void replaceAll()}>Replace all</button>
 			{() => {
 				const list = hits()
 				if (query() === '') return <p class="panel-empty">Type to search every script.</p>
