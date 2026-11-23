@@ -2246,3 +2246,46 @@ body {
   flex: none;
   color: #6b7280;
 }
+
+.vp3-bar {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 6;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid #2c3037;
+  border-radius: 8px;
+  background: rgba(20, 22, 26, 0.88);
+}
+
+.vp3-button {
+  padding: 4px 9px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #cfd6e0;
+  font: 600 12px system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.vp3-button:hover {
+  background: #262b33;
+  color: #fff;
+}
+
+.vp3-button[data-active='true'] {
+  background: #2c4a78;
+  color: #fff;
+}
+
+.vp3-label {
+  position: absolute;
+  left: 10px;
+  bottom: 8px;
+  z-index: 6;
+  color: #8b93a0;
+  font: 12px system-ui, sans-serif;
+  pointer-events: none;
+}

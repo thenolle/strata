@@ -350,6 +350,16 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 							<span class="toolbar-divider"></span>
 							<button type="button" class="mode-button" data-active={String(mode !== '3d')} title="2D view" onClick={() => run('view.mode2d')}>2D</button>
 							<button type="button" class="mode-button" data-active={String(mode === '3d')} title="3D view" onClick={() => run('view.mode3d')}>3D</button>
+							{mode === '3d' ? (
+								<>
+									<span class="toolbar-divider"></span>
+									<button type="button" class="mode-button" title="Add a cube" onClick={() => run('entity.addCube')}>+ Cube</button>
+									<button type="button" class="mode-button" title="Add a sphere" onClick={() => run('entity.addSphere')}>+ Sphere</button>
+									<button type="button" class="mode-button" title="Add a directional light" onClick={() => run('entity.addSun')}>+ Sun</button>
+									<button type="button" class="mode-button" title="Add a point light" onClick={() => run('entity.addPointLight')}>+ Light</button>
+									<button type="button" class="mode-button" title="Add a 3D camera" onClick={() => run('entity.addCamera3D')}>+ Camera</button>
+								</>
+							) : null}
 						</div>)
 					}}
 				</div>

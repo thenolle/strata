@@ -6,6 +6,7 @@ import SCRIPT_TEMPLATE from './ide/script-template.txt'
 import { emptyGraphText } from './graph-view.ts'
 import { dialogs } from './dialogs.tsx'
 import { prettyKeys } from './shortcuts.ts'
+import { eulerToQuat } from './euler.ts'
 
 export interface StudioHooks {
 	readonly save: () => Promise<void>
@@ -141,6 +142,12 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 		return [...grouped].map(([id, keys]) => `${titles.get(id) ?? id} — ${keys.join(' / ')}`).join('\n')
 	}
 
+	const node3d = (id: string, title: string, name: string, y: number, components: Readonly<Record<string, Readonly<Record<string, unknown>>>>, extra: { readonly z?: number; readonly tilt?: number } = {}): void => command(id, title, 'Entity', () => {
+		const entity = session.createEntity({ name, y, components })
+		const q = eulerToQuat(extra.tilt ?? 0, 0, 0)
+		session.setTransform(entity, { z: extra.z ?? 0, ...(extra.tilt === undefined ? {} : { qx: q[0], qy: q[1], qz: q[2], qw: q[3] }) })
+	})
+
 	// Commands
 
 	const command = (id: string, title: string, category: string, run: (args?: unknown) => void | Promise<void>, when?: string): void => {
@@ -244,6 +251,14 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 		hooks.revealFolder('Prefabs')
 		session.notifyAssetsChanged()
 	}, 'hasSelection')
+
+	node3d('entity.addCube', 'Add Cube', 'Cube', 50, { mesh: { shape: 'cube', color: '#5b9dff', size: 100 } })
+	node3d('entity.addSphere', 'Add Sphere', 'Sphere', 50, { mesh: { shape: 'sphere', color: '#e6a23c', size: 100 } })
+	node3d('entity.addCylinder', 'Add Cylinder', 'Cylinder', 50, { mesh: { shape: 'cylinder', color: '#7bc67b', size: 100 } })
+	node3d('entity.addPlane', 'Add Plane', 'Plane', 0, { mesh: { shape: 'plane', color: '#6b7280', size: 600 } })
+	node3d('entity.addSun', 'Add Directional Light', 'Sun', 400, { light: { kind: 'directional', color: '#ffffff', intensity: 1, range: 500 } }, { tilt: -50 })
+	node3d('entity.addPointLight', 'Add Point Light', 'Point Light', 220, { light: { kind: 'point', color: '#fff3c4', intensity: 1.3, range: 700 } })
+	node3d('entity.addCamera3D', 'Add 3D Camera', 'Camera 3D', 180, { camera3d: { fov: 60, near: 1, far: 5000 } }, { z: 500 })
 
 	command('tool.move', 'Move Tool', 'Tools', () => contexts.set('tool', 'move'))
 	command('tool.rotate', 'Rotate Tool', 'Tools', () => contexts.set('tool', 'rotate'))
@@ -401,6 +416,7 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 		contribute(menu, { command: 'entity.makePlayer', group: '2_modify@3', when: 'hasSelection' })
 		contribute(menu, { command: 'entity.makeSolid', group: '2_modify@4', when: 'hasSelection' })
 	}
+	for (const [command, group] of [['entity.addCube', '1_mesh@1'], ['entity.addSphere', '1_mesh@2'], ['entity.addCylinder', '1_mesh@3'], ['entity.addPlane', '1_mesh@4'], ['entity.addSun', '2_light@1'], ['entity.addPointLight', '2_light@2'], ['entity.addCamera3D', '3_camera']] as const) contribute('node3d/create', { command, group })
 
 	contribute('outline/context', { submenu: 'entity/create', title: 'Create', group: '1_create' })
 	contribute('outline/context', { command: 'entity.rename', group: '2_modify@1' })
@@ -482,6 +498,7 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 	contribute('menubar/help', { command: 'help.about', group: '1_help@2' })
 	contribute('menubar/help', { command: 'help.shortcuts', group: '2_info' })
 	contribute('menubar/view', { command: 'view.toggleAutosave', title: 'Autosave', group: '2_layout@0', toggled: 'autosave' })
+	contribute('menubar/scene', { submenu: 'node3d/create', title: 'Create 3D', group: '2_entity@5' })
 
 	return { contexts, commands, keybindings, menus, dispose: () => store.dispose() }
 }
