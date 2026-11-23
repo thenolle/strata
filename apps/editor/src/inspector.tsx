@@ -122,25 +122,27 @@ function SpriteField(props: FieldProps & { readonly session: EditorSession; read
 
 function ComponentSection(props: { readonly session: EditorSession; readonly entity: Entity; readonly definition: RegisteredComponent; readonly revision: () => number }): Child {
 	const { session, entity, definition, revision } = props
+	const open = signal(true)
+	const body = <div class="component-body">{Object.entries(definition.schema).map(([field, kind]) => {
+		if (kind === 'bool') return <BoolField label={field} revision={revision} read={() => session.componentValue(entity, definition, field) === true} write={(value) => session.setField(entity, definition, field, value)} />
+		if ((definition.name === 'audio' || definition.name === 'script') && field === 'asset') return <AssetField label={field} kind={definition.name === 'script' ? 'script' : 'audio'} session={session} revision={revision} read={() => String(session.componentValue(entity, definition, field) ?? '')} write={(value) => session.setField(entity, definition, field, value)} />
+		if (kind === 'entity') return null
+		if (kind === 'string' && (field === 'color' || field === 'background')) return <ColorField label={field} revision={revision} read={() => String(session.componentValue(entity, definition, field) ?? '')} write={(value) => session.setField(entity, definition, field, value)} />
+		if (kind === 'string') {
+			const options = OPTIONS[`${definition.name}.${field}`]
+			const read = (): string => String(session.componentValue(entity, definition, field) ?? '')
+			const write = (value: string): void => session.setField(entity, definition, field, value)
+			return options === undefined ? (<TextField label={field} revision={revision} read={read} write={write} />) : (<SelectField label={field} options={options} revision={revision} read={read} write={write} />)
+		}
+		return (<NumberField label={field} revision={revision} read={() => Number(session.componentValue(entity, definition, field) ?? 0)} write={(value) => session.setField(entity, definition, field, value)} />)
+	})}</div>
 	return (
 		<div class="component">
 			<div class="component-head">
-				<h2>{definition.name}</h2>
+				<button type="button" class="component-toggle" aria-expanded={() => String(open())} onClick={() => open.update((value) => !value)}>{() => (open() ? '▾ ' : '▸ ')} {definition.name}</button>
 				<Button size="sm" variant="ghost" onClick={() => session.setComponent(entity, definition, false)}>Remove</Button>
 			</div>
-			{Object.entries(definition.schema).map(([field, kind]) => {
-				if (kind === 'bool') return <BoolField label={field} revision={revision} read={() => session.componentValue(entity, definition, field) === true} write={(value) => session.setField(entity, definition, field, value)} />
-				if ((definition.name === 'audio' || definition.name === 'script') && field === 'asset') return <AssetField label={field} kind={definition.name === 'script' ? 'script' : 'audio'} session={session} revision={revision} read={() => String(session.componentValue(entity, definition, field) ?? '')} write={(value) => session.setField(entity, definition, field, value)} />
-				if (kind === 'entity') return null
-				if (kind === 'string' && (field === 'color' || field === 'background')) return <ColorField label={field} revision={revision} read={() => String(session.componentValue(entity, definition, field) ?? '')} write={(value) => session.setField(entity, definition, field, value)} />
-				if (kind === 'string') {
-					const options = OPTIONS[`${definition.name}.${field}`]
-					const read = (): string => String(session.componentValue(entity, definition, field) ?? '')
-					const write = (value: string): void => session.setField(entity, definition, field, value)
-					return options === undefined ? (<TextField label={field} revision={revision} read={read} write={write} />) : (<SelectField label={field} options={options} revision={revision} read={read} write={write} />)
-				}
-				return (<NumberField label={field} revision={revision} read={() => Number(session.componentValue(entity, definition, field) ?? 0)} write={(value) => session.setField(entity, definition, field, value)} />)
-			})}
+			{() => (open() ? body : null)}
 		</div>
 	)
 }

@@ -151,7 +151,7 @@ export class Game implements Disposable {
 			world.dispose()
 			return loaded
 		}
-		if (world.query(Mesh).length > 0 || world.query(Camera3D).length > 0) {
+		if (world.query(Mesh).length > 0 || world.query(Camera3D).length > 0 || world.query(Light).length > 0 || world.query(Environment).length > 0) {
 			const renderer3d = Renderer3D.create(options.canvas)
 			if (renderer3d === undefined) {
 				world.dispose()
