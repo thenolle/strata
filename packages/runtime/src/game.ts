@@ -1,11 +1,12 @@
-import { FixedTimestep, Logger, World, nullSink, type Disposable, type Entity, type Guid, type Result, ok } from '@strata/core'
+import { FixedTimestep, Logger, World, nullSink, type Disposable, type Entity, type Guid, type Result, ok, err, StrataError } from '@strata/core'
 import { Controller, createGameRegistry, updateControllers, type ControllerInput } from '@strata/gameplay'
 import { ActionMap, InputManager, type ControlLayout, type GamepadTracker, attachVirtualControls } from '@strata/input'
 import { Body, Collider, Physics } from '@strata/physics'
 import type { GameAssets } from './assets.ts'
 import { ScriptHost, ScriptSource, type ComponentView } from '@strata/scripting'
 import { Camera2D, SpriteBatch, createRenderer, decodeImage, fitCanvasToDisplay, packColor, type Renderer, type Texture } from '@strata/renderer'
-import { Camera, Name, Sprite, Transform, TransformSystem, loadScene, Light, Camera3D } from '@strata/scene'
+import { Camera, Camera3D, Light, Mesh, Name, Sprite, Transform, TransformSystem, loadScene } from '@strata/scene'
+import { Renderer3D, cameraView, lookAtView, multiply, perspective, scaleMatrix, type Draw3D, type Light3D, type Shape3D } from './renderer3d.ts'
 import { AudioSystem } from './audio.ts'
 import { isDrawable } from './visibility.ts'
 
@@ -64,16 +65,18 @@ export class Game implements Disposable {
 	readonly world: World
 	readonly #options: GameOptions
 	readonly #logger: Logger
-	readonly #renderer: Renderer
+	readonly #renderer: Renderer | undefined
+	readonly #renderer3d: Renderer3D | undefined
 	readonly #transforms: TransformSystem
 	readonly #physics: Physics
 	readonly #input: InputManager
 	readonly #audio: AudioSystem
 	readonly #timestep = new FixedTimestep(60)
-	readonly #white: Texture
+	readonly #white: Texture | undefined
 	readonly #shapes = new SpriteBatch(256)
 	readonly #layers = new Map<string, Layer>()
 	readonly #textures = new Map<string, Texture | null>()
+	readonly #textures3d = new Map<string, WebGLTexture | null>()
 	readonly #camera = new Camera2D()
 	readonly #registry = createGameRegistry()
 	readonly #scripts: ScriptHost
@@ -102,11 +105,12 @@ export class Game implements Disposable {
 		}
 	}
 
-	private constructor(options: GameOptions, logger: Logger, world: World, renderer: Renderer) {
+	private constructor(options: GameOptions, logger: Logger, world: World, renderer: Renderer | undefined, renderer3d: Renderer3D | undefined) {
 		this.#options = options
 		this.#logger = logger
 		this.world = world
 		this.#renderer = renderer
+		this.#renderer3d = renderer3d
 		this.#transforms = new TransformSystem(world, logger.child('transforms'))
 		this.#physics = new Physics(world, { gravityY: GRAVITY, setPosition: (entity, x, y) => this.#transforms.setLocal(entity, { x, y }) })
 		this.#input = new InputManager(options.canvas, new ActionMap())
@@ -135,7 +139,7 @@ export class Game implements Disposable {
 				options.onError?.(`${this.world.get(entity, Name)?.value ?? 'script'} ${hook}: ${message}`)
 			}
 		})
-		this.#white = renderer.createTexture({ width: 1, height: 1, data: new Uint8Array([255, 255, 255, 255]) }, 'nearest')
+		this.#white = renderer?.createTexture({ width: 1, height: 1, data: new Uint8Array([255, 255, 255, 255]) }, 'nearest')
 		this.#transforms.update()
 	}
 
@@ -147,12 +151,20 @@ export class Game implements Disposable {
 			world.dispose()
 			return loaded
 		}
+		if (world.query(Mesh).length > 0 || world.query(Camera3D).length > 0) {
+			const renderer3d = Renderer3D.create(options.canvas)
+			if (renderer3d === undefined) {
+				world.dispose()
+				return err(new StrataError('invalid-argument', 'This scene uses 3D, which needs WebGL 2'))
+			}
+			return ok(new Game(options, logger, world, undefined, renderer3d))
+		}
 		const created = await createRenderer(options.canvas, { logger: logger.child('renderer') })
 		if (!created.ok) {
 			world.dispose()
 			return created
 		}
-		return ok(new Game(options, logger, world, created.value))
+		return ok(new Game(options, logger, world, created.value, undefined))
 	}
 
 	async start(): Promise<void> {
@@ -199,7 +211,8 @@ export class Game implements Disposable {
 		this.#audio.dispose()
 		this.#detachTouch?.()
 		this.#input.dispose()
-		this.#renderer.dispose()
+		this.#renderer?.dispose()
+		this.#renderer3d?.dispose()
 		this.#transforms.dispose()
 		this.world.dispose()
 	}
@@ -252,8 +265,8 @@ export class Game implements Disposable {
 		if (now - this.#lastStatus > 250) {
 			this.#lastStatus = now
 			const bodies = this.world.query(Body).length
-			const players = this.world.query(Controller, Body).length
-			this.#options.onStatus?.(`${this.#renderer.backend} · ${this.world.entityCount} entities · ${this.#drawn} drawn · ${bodies} bodies · ${players} players · ${this.#scripts.count} scripts`)
+			const players = this.world.query(Controller).length
+			this.#options.onStatus?.(`${this.#renderer?.backend ?? 'webgl2 3d'} · ${this.world.entityCount} entities · ${this.#drawn} drawn · ${bodies} bodies · ${players} players · ${this.#scripts.count} scripts`)
 		}
 		this.#frameId = requestAnimationFrame(this.#frame)
 	}
@@ -277,8 +290,8 @@ export class Game implements Disposable {
 			const bytes = await this.#options.assets.read(record.id)
 			if (!bytes.ok || this.#disposed) return
 			const bitmap = await decodeImage(bytes.value)
-			if (this.#disposed) return
-			this.#textures.set(assetId, this.#renderer.createTexture(bitmap, 'nearest'))
+			const texture = this.#renderer?.createTexture(bitmap, 'nearest')
+			this.#textures.set(assetId, texture ?? null)
 		})().catch((error: unknown) => this.#logger.error('Sprite image failed to load', error))
 		return undefined
 	}
@@ -329,6 +342,7 @@ export class Game implements Disposable {
 	}
 
 	#draw(): void {
+		if (this.#renderer3d !== undefined) return this.#draw3d(this.#renderer3d)
 		const canvas = this.#options.canvas
 		fitCanvasToDisplay(canvas)
 		this.#updateCamera()
@@ -342,11 +356,11 @@ export class Game implements Disposable {
 			this.#drawEntity(entity)
 			this.#drawn++
 		}
-		const spriteDraws = [...this.#layers.values()].filter((layer) => layer.batch.count > 0).map((layer) => ({ texture: layer.texture, batch: layer.batch }))
-		this.#renderer.render({
+		const spriteDraws = Array.from(this.#layers.values(), (layer) => ({ texture: layer.texture, batch: layer.batch }))
+		this.#renderer?.render({
 			clearColor: [0.06, 0.07, 0.08, 1],
 			viewProjection,
-			draws: [{ texture: this.#white, batch: this.#shapes }, ...spriteDraws]
+			draws: [{ texture: this.#white as Texture, batch: this.#shapes }, ...spriteDraws]
 		})
 	}
 
@@ -372,5 +386,74 @@ export class Game implements Disposable {
 		} else {
 			this.#shapes.add(x, y, width, height, rotation, this.world.has(entity, Controller) ? packColor(1, 0.85, 0.3) : (COLORS[entity % COLORS.length] ?? 0xffffffff))
 		}
+	}
+
+	#textureFor3d(assetId: string, renderer: Renderer3D): WebGLTexture | undefined {
+		const known = this.#textures3d.get(assetId)
+		if (known !== undefined) return known ?? undefined
+		this.#textures3d.set(assetId, null)
+		void (async () => {
+			const record = this.#options.assets.get(assetId as Guid)
+			if (record === undefined || record.kind !== 'image') return
+			const bytes = await this.#options.assets.read(record.id)
+			if (!bytes.ok || this.#disposed) return
+			const bitmap = await decodeImage(bytes.value)
+			if (this.#disposed) return
+			this.#textures3d.set(assetId, renderer.createTexture(bitmap))
+		})().catch((error: unknown) => this.#logger.error('Sprite image failed to load', error))
+		return undefined
+	}
+
+	#draw3d(renderer: Renderer3D): void {
+		const canvas = this.#options.canvas
+		fitCanvasToDisplay(canvas)
+		this.#drawn = 0
+		const draws: Draw3D[] = []
+		const lights: Light3D[] = []
+		let camera: { readonly world: Float32Array; readonly fov: number; readonly near: number; readonly far: number } | undefined
+		const hex = (value: string): number[] => {
+			const n = /^#[0-9a-f]{6}$/i.test(value) ? parseInt(value.slice(1), 16) : 0x808080
+			return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255]
+		}
+		for (const entity of this.world.query(Transform)) {
+			const matrix = this.#transforms.worldMatrix(entity)
+			if (matrix === undefined) continue
+			const world = Float32Array.from(matrix.elements)
+			const view = this.world.get(entity, Camera3D)
+			if (view !== undefined) {
+				camera ??= { world, fov: view.fov, near: view.near, far: view.far }
+				continue
+			}
+			const light = this.world.get(entity, Light)
+			if (light !== undefined) {
+				if (lights.length < 4) {
+					const tint = hex(light.color)
+					const [lx, ly, lz] = [world[8]!, world[9]!, world[10]!]
+					const length = Math.hypot(lx, ly, lz) || 1
+					const strength = tint.map((channel) => channel * light.intensity)
+					lights.push(light.kind === 'point' ? { a: [world[12]!, world[13]!, world[14]!, 1], b: [...strength, light.range] } : { a: [lx / length, ly / length, lz / length, 0], b: [...strength, light.range] })
+				}
+				continue
+			}
+			const mesh = this.world.get(entity, Mesh)
+			if (mesh !== undefined) {
+				const size = mesh.size > 0 ? mesh.size : 100
+				const shape: Shape3D = mesh.shape === 'sphere' || mesh.shape === 'cylinder' || mesh.shape === 'plane' ? mesh.shape : 'cube'
+				draws.push({ shape, model: multiply(world, scaleMatrix(size, size, size)), color: hex(mesh.color), lit: true })
+				this.#drawn++
+				continue
+			}
+			if (!isDrawable(this.world, entity)) continue
+			const extent = this.#extent(entity)
+			const assetId = this.world.get(entity, Sprite)?.asset ?? ''
+			const texture = assetId === '' ? undefined : this.#textureFor3d(assetId, renderer)
+			if (texture !== undefined) draws.push({ shape: 'quad', model: multiply(world, scaleMatrix(extent.w, extent.h, 1)), color: [1, 1, 1], lit: false, texture })
+			else draws.push({ shape: 'cube', model: multiply(world, scaleMatrix(extent.w, extent.h, 12)), color: [0.36 + (entity % 5) * 0.12, 0.62, 0.95 - (entity % 4) * 0.15], lit: true })
+			this.#drawn++
+		}
+		const aspect = canvas.width / Math.max(1, canvas.height)
+		const fov = camera === undefined ? 60 : camera.fov
+		const view = camera === undefined ? lookAtView([0, 300, 700], [0, 100, 0]) : cameraView(camera.world)
+		renderer.render(view, perspective((fov * Math.PI) / 180, aspect, camera?.near ?? 1, camera?.far ?? 5000), draws, lights)
 	}
 }

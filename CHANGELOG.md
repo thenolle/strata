@@ -55,3 +55,4 @@
 - Output tab in the bottom dock: play logs and errors, command failures, saves and exports in one log.
 - 3D view: a perspective view of the scene with orbit, pan, zoom, focus and click selection.
 - 3D editor: mesh, light and camera nodes, lit viewport, move, rotate and scale gizmos, snapping, view presets, and full 3D transform fields in the Inspector.
+- Play and exports run 3D scenes: lit meshes, lights and 3D cameras on WebGL 2.
