@@ -22,6 +22,7 @@ import { prettyKeys } from '../apps/editor/src/shortcuts.ts'
 import { output } from '../apps/editor/src/output.ts'
 import { OrbitCamera, planeHit, pointInRect, closestParam, invert, modelMatrix, multiply } from '../apps/editor/src/camera3d.ts'
 import { eulerToQuat, quatToEuler } from '../apps/editor/src/euler.ts'
+import { cameraView, perspective } from '../packages/runtime/src/renderer3d.ts'
 
 console.log('shortcuts', prettyKeys('mod+shift+z'), prettyKeys('f5'), prettyKeys('contextmenu'), prettyKeys('w'))
 console.log('fuzzy', fuzzyScore('sp', 'setPosition'), (fuzzyScore('sp', 'spawn') ?? 0) > (fuzzyScore('sp', 'setPosition') ?? 0), fuzzyScore('xyz', 'setPosition'))
@@ -272,3 +273,6 @@ const worst = Math.max(...Array.from(product, (entry, index) => Math.abs(entry -
 console.log('math3d', worst < 1e-4, Math.round(closestParam({ origin: [0, 0, 10], direction: [0, 0, -1] }, [0, 0, 0], [1, 0, 0])), Math.round(closestParam({ origin: [5, 0, 10], direction: [0, 0, -1] }, [0, 0, 0], [1, 0, 0])))
 const euler = quatToEuler(...eulerToQuat(30, 40, 50))
 console.log('euler', euler.map((angle) => Math.round(angle)).join(' '), eulerToQuat(0, 0, 90)[2].toFixed(3))
+
+const placed2 = cameraView(new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 10, 1]))
+console.log('runtime3d', placed2[14], perspective(1, 2, 1, 100)[11])
