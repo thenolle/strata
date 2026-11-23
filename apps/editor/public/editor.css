@@ -2386,3 +2386,19 @@ body {
   color: #8b93a0;
   font-size: 12px;
 }
+
+.workspace-badge {
+  padding: 4px 12px;
+  border-radius: 6px;
+  background: #14161a;
+  color: #9aa4b2;
+  font: 600 12px system-ui, sans-serif;
+}
+
+.workspace-badge[data-kind='3d'] {
+  color: #e6a23c;
+}
+
+.workspace-badge[data-kind='2d'] {
+  color: #7fb4e6;
+}

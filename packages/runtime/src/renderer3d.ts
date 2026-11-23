@@ -8,6 +8,7 @@ export interface Draw3D {
 	readonly color: readonly number[]
 	readonly lit: boolean
 	readonly texture?: WebGLTexture
+	readonly shine?: number
 }
 
 /** One light: `a` is a direction toward the light (w = 0) or a position (w = 1); `b` is color times intensity, then range. */
@@ -115,6 +116,7 @@ uniform vec3 fogColor;
 uniform vec3 eye;
 uniform vec4 lightA[4];
 uniform vec4 lightB[4];
+uniform float shine;
 out vec4 outColor;
 void main() {
 	vec4 c = useTex ? texture(tex, vec2(uv.x, 1.0 - uv.y)) * color : color;
@@ -122,7 +124,9 @@ void main() {
 	if (lit > 0.5) {
 		vec3 n = normalize(wn);
 		if (!gl_FrontFacing) n = -n;
+		vec3 view = normalize(eye - wp);
 		vec3 total = vec3(ambient);
+		vec3 spec = vec3(0.0);
 		for (int i = 0; i < 4; i++) {
 			vec4 a = lightA[i];
 			vec4 b = lightB[i];
@@ -136,9 +140,11 @@ void main() {
 				l = d / dist;
 				att = clamp(1.0 - dist / max(b.w, 1.0), 0.0, 1.0);
 			}
-			total += b.rgb * max(dot(n, l), 0.0) * att;
+			float diffuse = max(dot(n, l), 0.0);
+			total += b.rgb * diffuse * att;
+			if (shine > 0.0 && diffuse > 0.0) spec += b.rgb * pow(max(dot(n, normalize(l + view)), 0.0), shine) * att;
 		}
-		c.rgb *= min(total, vec3(1.6));
+		c.rgb = c.rgb * min(total, vec3(1.6)) + spec * 0.6;
 	}
 	float haze = clamp(1.0 - exp(-fog * distance(wp, eye) * 0.0008), 0.0, 1.0);
 	c.rgb = mix(c.rgb, fogColor, haze);
@@ -217,7 +223,8 @@ export class Renderer3D {
 		| 'ambient'
 		| 'fog'
 		| 'fogColor'
-		| 'eye',
+		| 'eye'
+		| 'shine',
 		WebGLUniformLocation | null
 	>
 
@@ -263,7 +270,8 @@ export class Renderer3D {
 			ambient: at('ambient'),
 			fog: at('fog'),
 			fogColor: at('fogColor'),
-			eye: at('eye')
+			eye: at('eye'),
+			shine: at('shine'),
 		}
 	}
 
@@ -331,6 +339,7 @@ export class Renderer3D {
 				gl.uniform4f(u.color, item.color[0] ?? 1, item.color[1] ?? 1, item.color[2] ?? 1, 1)
 				gl.uniform1i(u.useTex, item.texture === undefined ? 0 : 1)
 				gl.uniform1f(u.lit, item.lit ? 1 : 0)
+				gl.uniform1f(u.shine, item.shine ?? 0)
 				if (item.texture !== undefined) gl.bindTexture(gl.TEXTURE_2D, item.texture)
 				gl.bindVertexArray(geometry.vao)
 				gl.drawArrays(gl.TRIANGLES, 0, geometry.count)

@@ -7,7 +7,7 @@ import { emptyGraphText } from './graph-view.ts'
 import { dialogs } from './dialogs.tsx'
 import { prettyKeys } from './shortcuts.ts'
 import { eulerToQuat } from './euler.ts'
-import { renameSceneType, setSceneType, type SceneType } from './scene-types.ts'
+import { renameSceneType, setSceneType, type SceneType, allowedIn } from './scene-types.ts'
 
 export interface StudioHooks {
 	readonly save: () => Promise<void>
@@ -137,7 +137,6 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 		if (session.paste(new TextDecoder().decode(bytes.value), { ...(point === undefined ? {} : { at: point }), label: false }) === undefined) fail('The prefab is damaged')
 	}
 
-	const titles = new Map<string, string>()
 	const shortcutLines = (): string => {
 		const grouped = new Map<string, string[]>()
 		for (const binding of bindings) grouped.set(binding.command, [...(grouped.get(binding.command) ?? []), prettyKeys(binding.keys)])
@@ -155,11 +154,31 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 		{ label: '3D scene', value: '3d' as SceneType, detail: 'meshes, lights and a 3D camera' }
 	]
 
+	const only: Readonly<Record<string, SceneType>> = {
+		'entity.addCube': '3d', 'entity.addSphere': '3d', 'entity.addCylinder': '3d', 'entity.addPlane': '3d', 'entity.addSun': '3d',
+		'entity.addPointLight': '3d', 'entity.addCamera3D': '3d', 'entity.addEnvironment': '3d',
+		'entity.addPlayer': '2d', 'entity.addPlatform': '2d', 'entity.addCamera': '2d', 'tool.rect': '2d'
+	}
+
+	const titles = new Map<string, string>()
+
 	// Commands
 
 	const command = (id: string, title: string, category: string, run: (args?: unknown) => void | Promise<void>, when?: string): void => {
 		titles.set(id, title)
-		store.add(commands.register({ id, title, category, ...(when === undefined ? {} : { when }), run }))
+		store.add(
+			commands.register({
+				id,
+				title,
+				category,
+				...(when === undefined ? {} : { when }),
+				run: async (args?: unknown) => {
+					const required = only[id]
+					if (required !== undefined && contexts.get('viewMode') !== required) throw new Error(`"${title}" only works in a ${required.toUpperCase()} scene`)
+					await run(args)
+				}
+			})
+		)
 	}
 
 	command('workbench.action.showCommands', 'Show All Commands', 'View', hooks.openPalette)
@@ -173,8 +192,8 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 	command('project.close', 'Close Project', 'File', hooks.close)
 
 	command('view.toggleGrid', 'Toggle Grid', 'View', () => contexts.set('gridVisible', contexts.get('gridVisible') !== true))
-	command('view.mode2d', 'Switch to 2D View', 'View', () => contexts.set('viewMode', '2d'))
-	command('view.mode3d', 'Switch to 3D View', 'View', () => contexts.set('viewMode', '3d'))
+	command('view.mode2d', 'Switch to 2D', 'View', () => void commands.execute('scene.setType'))
+	command('view.mode3d', 'Switch to 3D', 'View', () => void commands.execute('scene.setType'))
 	command('view.resetLayout', 'Reset Layout', 'View', () => hooks.resetLayout())
 	command('view.toggleAutosave', 'Autosave', 'View', () => contexts.set('autosave', contexts.get('autosave') !== true))
 	command('view.script', 'Open Script Editor', 'View', () => hooks.openIde())
@@ -368,8 +387,13 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 		await renameSceneType(session.project, previous, name)
 	})
 	command('scene.setType', 'Change Scene Type…', 'Scene', async () => {
-		const type = await dialogs.choose<SceneType>(`"${session.scene}" is currently a ${contexts.get('viewMode') === '3d' ? '3D' : '2D'} scene.`, SCENE_CHOICES, { title: 'Scene type' })
-		if (type === undefined) return
+		const current = contexts.get('viewMode') === '3d' ? '3d' : '2d'
+		const type = await dialogs.choose<SceneType>(`"${session.scene}" is currently a ${current.toUpperCase()} scene.`, SCENE_CHOICES, { title: 'Scene type' })
+		if (type === undefined || type === current) return
+		const misfits = session.rows().filter((row) =>
+			[...session.registry.definitions()].some((definition) => session.world.has(row.entity, definition) && !allowedIn(type, definition.name))
+		).length
+		if (misfits > 0 && !(await dialogs.confirm(`${misfits} node${misfits === 1 ? '' : 's'} belong to the other type. They stay in the file but are hidden in the ${type.toUpperCase()} view. Continue?`, { title: 'Change scene type', okLabel: 'Change' }))) return
 		await setSceneType(session.project, session.scene, type)
 		contexts.set('viewMode', type)
 	})

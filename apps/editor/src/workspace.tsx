@@ -17,7 +17,7 @@ import { applyLayout, DEFAULT_LAYOUT, loadLayout, saveLayout, type Layout } from
 import { attachSplitter } from './splitter.ts'
 import { IconButton } from './ui.tsx'
 import { VIEWPORTS, type ViewMode } from './viewport-modes.ts'
-import { inferSceneType, nodeGlyph, rememberScene, sceneTypeOf, sceneTypes, type SceneType } from './scene-types.ts'
+import { allowedIn, inferSceneType, nodeGlyph, rememberScene, sceneTypeOf, sceneTypes, type SceneType } from './scene-types.ts'
 import type { ViewportOptions } from './viewport.ts'
 import { GraphEditor } from './graph-editor.tsx'
 import { ExportDialog } from './export-dialog.tsx'
@@ -303,8 +303,7 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 					const mode = studio.contexts.get('viewMode')
 					return (
 						<nav class="workspace-tabs" aria-label="Workspace">
-							<button type="button" class="workspace-tab" data-active={String(mode !== '3d')} onClick={() => run('view.mode2d')}>2D</button>
-							<button type="button" class="workspace-tab" data-active={String(mode === '3d')} onClick={() => run('view.mode3d')}>3D</button>
+							<span class="workspace-badge" data-kind={mode === '3d' ? '3d' : '2d'}>{mode === '3d' ? '3D scene' : '2D scene'}</span>
 							<button type="button" class="workspace-tab" onClick={() => run('view.script')}>Script</button>
 						</nav>
 					)
@@ -334,7 +333,8 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 				{() => {
 					outlineRevision()
 					const query = filter().trim().toLowerCase()
-					const rows = session.rows().filter((row) => query === '' || row.name.toLowerCase().includes(query))
+					const kind = studio.contexts.get('viewMode') === '3d' ? '3d' : '2d'
+					const rows = session.rows().filter((row) => (query === '' || row.name.toLowerCase().includes(query)) && [...session.registry.definitions()].every((definition) => !session.world.has(row.entity, definition) || allowedIn(kind, definition.name)))
 					if (rows.length === 0) return <p class="panel-empty">{query === '' ? 'No entities yet. Add one to begin.' : 'No entity matches the filter.'}</p>
 					return (
 						<ul class="rows">
@@ -367,7 +367,7 @@ export function Workspace(props: { readonly session: EditorSession; readonly onC
 							<IconButton icon="move" title="Move (W)" active={tool === 'move'} onClick={() => run('tool.move')} />
 							<IconButton icon="rotate" title="Rotate (E)" active={tool === 'rotate'} onClick={() => run('tool.rotate')} />
 							<IconButton icon="scale" title="Scale (R)" active={tool === 'scale'} onClick={() => run('tool.scale')} />
-							<IconButton icon="rect" title="Rect: resize with handles (T)" active={tool === 'rect'} onClick={() => run('tool.rect')} />
+							{mode === '3d' ? null : <IconButton icon="rect" title="Rect: resize with handles (T)" active={tool === 'rect'} onClick={() => run('tool.rect')} />}
 							{mode === '3d' ? (
 								<>
 									<span class="toolbar-divider"></span>
