@@ -9,6 +9,7 @@ import { Sprite, saveScene } from '@strata/scene'
 import { ScriptSource } from '@strata/scripting'
 import { bundleScript, collectScripts, scriptPath } from './ide/bundle-client.ts'
 import type { FrameAsset, FromFrame, ToFrame } from './play-protocol.ts'
+import { loadControls } from './controls-settings.ts'
 
 type Prepared = { readonly ok: true; readonly message: ToFrame; readonly transfer: ArrayBuffer[] } | { readonly ok: false; readonly error: string }
 
@@ -48,7 +49,7 @@ async function prepare(session: EditorSession): Promise<Prepared> {
 			scripts.push({ id: record.id, code: compiled.code })
 		}
 	}
-	return { ok: true, message: { type: 'start', scene: text.value, assets, scripts }, transfer }
+	return { ok: true, message: { type: 'start', scene: text.value, assets, scripts, controls: await loadControls(session) }, transfer }
 }
 
 /**

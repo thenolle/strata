@@ -5,6 +5,7 @@ import type { Guid } from '@strata/core'
 import type { EditorSession } from '@strata/editor-core'
 import { graph as G } from '@strata/scripting'
 import { GraphView, parseGraph } from './graph-view.ts'
+import { dialogs } from './dialogs.tsx'
 
 /**
  * The graph editor: a canvas for the nodes, live checking, the generated code, and Save and compile, which also writes the script next to the graph.
@@ -106,18 +107,19 @@ export function GraphEditor(props: { readonly session: EditorSession; readonly a
 		status.set(failure ?? `Saved and compiled to ${name}.ts`)
 	}
 
-	const close = (): void => {
-		if (dirty.peek() && !confirm('Discard the unsaved changes to this graph?')) return
+	const close = async (): Promise<void> => {
+		if (dirty.peek() && !(await dialogs.confirm('Discard the unsaved changes to this graph?', { title: 'Unsaved changes', okLabel: 'Discard', danger: true }))) return
 		props.onClose()
 	}
 
-	const addVariable = (): void => {
-		const variableName = prompt('Variable name')?.trim()
+	const addVariable = async (): Promise<void> => {
+		const variableName = (await dialogs.prompt('Variable name', { title: 'Add variable', validate: (value) => (/^[A-Za-z_]\w*$/.test(value.trim()) ? undefined : 'Use letters, digits and underscores, and do not start with a digit') }))?.trim()
 		if (variableName === undefined || variableName === '') return
-		const type = prompt('Type: number, string or boolean', 'number')?.trim()
-		if (type !== 'number' && type !== 'string' && type !== 'boolean') return
-		const raw = prompt('Starting value', type === 'number' ? '0' : type === 'boolean' ? 'false' : '') ?? ''
-		const value = type === 'number' ? Number(raw) || 0 : type === 'boolean' ? raw === 'true' : raw
+		const type = await dialogs.choose<'number' | 'string' | 'boolean'>('What kind of value is it?', [{ label: 'Number', value: 'number' }, { label: 'Text', value: 'string' }, { label: 'True or false', value: 'boolean' }], { title: 'Variable type' })
+		if (type === undefined) return
+		const raw = await dialogs.prompt('Starting value', { title: 'Add variable', value: type === 'number' ? '0' : type === 'boolean' ? 'false' : '' })
+		if (raw === undefined) return
+		const value = type === 'number' ? Number(raw) || 0 : type === 'boolean' ? raw.trim() === 'true' : raw
 		if (view?.addVariable({ name: variableName, type, value }) !== true) status.set('Use a new name made of letters, digits and underscores')
 		refreshVariables()
 	}
@@ -133,7 +135,7 @@ export function GraphEditor(props: { readonly session: EditorSession; readonly a
 						if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
 							event.preventDefault()
 							void save()
-						} else if (event.key === 'Escape' && (event.target as HTMLElement).closest('.ide-pick') === null) close()
+						} else if (event.key === 'Escape' && (event.target as HTMLElement).closest('.ide-pick') === null) void close()
 					}
 					const listener = onKey as EventListener
 					element.addEventListener('keydown', listener)
@@ -159,13 +161,13 @@ export function GraphEditor(props: { readonly session: EditorSession; readonly a
 					<button class="wb-button" type="button" title="Show the generated TypeScript" onClick={() => showCode.update((open) => !open)}>
 						Code
 					</button>
-					<button class="wb-button" type="button" onClick={addVariable}>
+					<button class="wb-button" type="button" onClick={() => void addVariable()}>
 						Add variable
 					</button>
 					<button class="wb-button" type="button" onClick={() => void save()}>
 						Save and compile
 					</button>
-					<button class="wb-button" type="button" onClick={close}>
+					<button class="wb-button" type="button" onClick={() => void close()}>
 						Close
 					</button>
 				</header>

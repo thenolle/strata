@@ -1,6 +1,6 @@
 import { FixedTimestep, Logger, World, nullSink, type Disposable, type Entity, type Guid, type Result, ok } from '@strata/core'
 import { Controller, createGameRegistry, updateControllers, type ControllerInput } from '@strata/gameplay'
-import { ActionMap, InputManager } from '@strata/input'
+import { ActionMap, InputManager, type ControlLayout, type GamepadTracker, attachVirtualControls } from '@strata/input'
 import { Body, Collider, Physics } from '@strata/physics'
 import type { GameAssets } from './assets.ts'
 import { ScriptHost, ScriptSource, type ComponentView } from '@strata/scripting'
@@ -33,7 +33,23 @@ export interface GameOptions {
 	readonly onLog?: (text: string) => void
 	readonly onStatus?: (text: string) => void
 	readonly onError?: (message: string) => void
+	/** On-screen controls. Without it there are none. */
+	readonly controls?: ControlLayout
+	/** Gamepad input as keys. Default true. */
+	readonly gamepad?: boolean
 }
+
+const PAD_KEYS: readonly { readonly code: string; readonly read: (pads: GamepadTracker) => number }[] = [
+	{ code: 'ArrowLeft', read: (pads) => Math.max(pads.axisValue(0, -1), pads.buttonValue(14)) },
+	{ code: 'ArrowRight', read: (pads) => Math.max(pads.axisValue(0, 1), pads.buttonValue(15)) },
+	{ code: 'ArrowUp', read: (pads) => Math.max(pads.axisValue(1, -1), pads.buttonValue(12)) },
+	{ code: 'ArrowDown', read: (pads) => Math.max(pads.axisValue(1, 1), pads.buttonValue(13)) },
+	{ code: 'Space', read: (pads) => pads.buttonValue(0) },
+	{ code: 'KeyQ', read: (pads) => pads.buttonValue(1) },
+	{ code: 'KeyE', read: (pads) => pads.buttonValue(2) },
+	{ code: 'KeyR', read: (pads) => pads.buttonValue(3) },
+	{ code: 'Enter', read: (pads) => pads.buttonValue(9) }
+]
 
 interface Layer {
 	readonly texture: Texture
@@ -61,6 +77,8 @@ export class Game implements Disposable {
 	readonly #camera = new Camera2D()
 	readonly #registry = createGameRegistry()
 	readonly #scripts: ScriptHost
+	readonly #padHeld = new Set<string>()
+	#detachTouch: (() => void) | undefined
 	#names: Map<string, Entity> | undefined
 	#running = false
 	#disposed = false
@@ -94,6 +112,7 @@ export class Game implements Disposable {
 		this.#input = new InputManager(options.canvas, new ActionMap())
 		this.#audio = new AudioSystem(options.assets, logger.child('audio'))
 		const keys = this.#input.keyboard
+		if (options.controls !== undefined) this.#detachTouch = attachVirtualControls(options.canvas, options.controls, (code, down) => void (down ? keys.press(code) : keys.release(code)))
 		this.#scripts = new ScriptHost({
 			input: {
 				isDown: (code) => keys.isDown(code),
@@ -178,6 +197,7 @@ export class Game implements Disposable {
 		this.#disposed = true
 		this.#scripts.dispose()
 		this.#audio.dispose()
+		this.#detachTouch?.()
 		this.#input.dispose()
 		this.#renderer.dispose()
 		this.#transforms.dispose()
@@ -189,12 +209,30 @@ export class Game implements Disposable {
 		return (keys.isDown(positiveA) || keys.isDown(positiveB) ? 1 : 0) - (keys.isDown(negativeA) || keys.isDown(negativeB) ? 1 : 0)
 	}
 
+	#bridgePad(): void {
+		if (this.#options.gamepad === false) return
+		const pads = this.#input.gamepads
+		const keys = this.#input.keyboard
+		for (const entry of PAD_KEYS) {
+			const down = entry.read(pads) >= 0.5
+			const held = this.#padHeld.has(entry.code)
+			if (down && !held) {
+				this.#padHeld.add(entry.code)
+				keys.press(entry.code)
+			} else if (!down && held) {
+				this.#padHeld.delete(entry.code)
+				keys.release(entry.code)
+			}
+		}
+	}
+
 	readonly #frame = (now: number): void => {
 		if (!this.#running) return
 		const seconds = Math.min(MAX_FRAME_SECONDS, Math.max(0, (now - this.#last) / 1000))
 		this.#last = now
 		this.#frameSeconds = seconds
 		this.#input.update()
+		this.#bridgePad()
 		const keys = this.#input.keyboard
 		if (keys.wasPressed('Space') || keys.wasPressed('ArrowUp') || keys.wasPressed('KeyW')) this.#jump = true
 		try {

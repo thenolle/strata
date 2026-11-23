@@ -5,6 +5,7 @@ import type { AssetRecord } from '@strata/project'
 import { Sprite, saveScene } from '@strata/scene'
 import { ScriptSource } from '@strata/scripting'
 import type { ExportSettings } from './export-settings.ts'
+import { loadControls } from './controls-settings.ts'
 import { bundleScript, collectScripts, scriptPath } from './ide/bundle-client.ts'
 import type { ZipEntry } from './zip.ts'
 
@@ -80,7 +81,7 @@ export async function buildWebGame(session: EditorSession, settings: ExportSetti
 	const player = await fetch('/assets/webplayer.js')
 	if (!player.ok) return err(new StrataError('not-found', 'The web player is missing from this editor build'))
 	const encoder = new TextEncoder()
-	const game = { format: 'strata.game', name: settings.title, version: settings.version, author: settings.author, credit: CREDIT, scene: scene.value, assets: records, scripts }
+	const game = { format: 'strata.game', name: settings.title, version: settings.version, author: settings.author, credit: CREDIT, scene: scene.value, assets: records, scripts, controls: await loadControls(session) }
 	return ok([
 		{ name: 'index.html', data: encoder.encode(page(settings, favicon)) },
 		{ name: 'player.js', data: new Uint8Array(await player.arrayBuffer()) },

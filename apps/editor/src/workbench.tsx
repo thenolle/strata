@@ -16,6 +16,7 @@ import { applyTextEdits } from './ide/editing.ts'
 import type { FileEdits } from './ide/ide-client.ts'
 import { quickPick, type PickItem } from './ide/quick-pick.ts'
 import { SearchPanel } from './search-panel.tsx'
+import { dialogs } from './dialogs.tsx'
 
 interface Doc {
 	readonly id: Guid
@@ -123,10 +124,11 @@ export function Workbench(props: {
 		bump()
 	}
 
-	const closeTab = (id: Guid): void => {
+	const closeTab = async (id: Guid): Promise<void> => {
 		const doc = open.get(id)
 		if (doc === undefined) return
-		if (doc.dirty && !confirm(`Discard unsaved changes to ${doc.name}?`)) return
+		if (doc.dirty && !(await dialogs.confirm(`Discard unsaved changes to ${doc.name}?`, { title: 'Unsaved changes', okLabel: 'Discard', danger: true }))) return
+		if (!open.has(id)) return
 		doc.editor.dispose()
 		open.delete(id)
 		void syncProject()
@@ -187,9 +189,9 @@ export function Workbench(props: {
 		activate(id)
 	}
 
-	const requestClose = (): void => {
+	const requestClose = async (): Promise<void> => {
 		const dirty = [...open.values()].filter((doc) => doc.dirty)
-		if (dirty.length > 0 && !confirm(`Discard unsaved changes in ${dirty.map((doc) => doc.name).join(', ')}?`)) return
+		if (dirty.length > 0 && !(await dialogs.confirm(`Discard unsaved changes in ${dirty.map((doc) => doc.name).join(', ')}?`, { title: 'Unsaved changes', okLabel: 'Discard', danger: true }))) return
 		props.onClose()
 	}
 
@@ -267,7 +269,7 @@ export function Workbench(props: {
 			{ label: 'Search in All Scripts', detail: 'Ctrl+Shift+F', value: showSearch },
 			...(doc === undefined ? [] : doc.editor.commands.map((command) => ({ label: command.label, detail: command.keys, value: command.run }))),
 			{ label: 'Save', detail: 'Ctrl+S', value: () => { const id = active.peek(); if (id !== undefined) void save(id) } },
-			{ label: 'Back to Editor', detail: '', value: requestClose }
+			{ label: 'Back to Editor', detail: '', value: () => void requestClose() }
 		]
 		pick('Type a command', items, (action) => action())
 	}
@@ -338,7 +340,7 @@ export function Workbench(props: {
 					</span>
 					<button class="wb-button" type="button" title="Run the script (Ctrl+Enter)" onClick={() => void run()}>▶ Run</button>
 					<button class="wb-button" type="button" title="Format document (Ctrl+Shift+I)" onClick={() => current()?.editor.formatDocument()}>Format</button>
-					<button class="wb-button" type="button" onClick={requestClose}>Back to editor</button>
+					<button class="wb-button" type="button" onClick={() => void requestClose()}>Back to editor</button>
 				</header>
 				<div class="wb-left">
 					{() => (
@@ -422,7 +424,7 @@ export function Workbench(props: {
 											{doc?.name ?? 'Script'}
 											{doc?.dirty === true ? ' ●' : ''}
 										</button>
-										<button type="button" class="wb-tab-close" title="Close" onClick={() => closeTab(id)}>
+										<button type="button" class="wb-tab-close" title="Close" onClick={() => void closeTab(id)}>
 											×
 										</button>
 									</div>

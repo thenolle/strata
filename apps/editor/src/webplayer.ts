@@ -1,6 +1,7 @@
 import { StrataError, err, ok } from '@strata/core'
 import type { AssetRecord } from '@strata/project'
 import { Game, type GameAssets } from '@strata/runtime'
+import { parseControls } from '@strata/input'
 
 interface GameFile {
 	readonly scene: string
@@ -8,6 +9,7 @@ interface GameFile {
 	readonly scripts: readonly { readonly id: string; readonly code: string }[]
 	/** Present in native builds: every asset as base64, so nothing is fetched. */
 	readonly assetData?: Readonly<Record<string, string>>
+	readonly controls?: unknown
 }
 
 const canvas = document.getElementById('game') as HTMLCanvasElement
@@ -47,7 +49,8 @@ async function main(): Promise<void> {
 		sceneText: data.scene,
 		scripts: new Map(data.scripts.map((item): [string, string] => [item.id, item.code])),
 		loadModule: (code) => import(URL.createObjectURL(new Blob([code], { type: 'text/javascript' }))),
-		onError: (text) => show(`Error: ${text}`)
+		onError: (text) => show(`Error: ${text}`),
+		controls: parseControls(data.controls)
 	})
 	if (!created.ok) {
 		show(created.error.message)

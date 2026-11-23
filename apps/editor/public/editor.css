@@ -2058,3 +2058,96 @@ body {
   color: #e6e8eb;
   font: 13px system-ui, sans-serif;
 }
+
+.dialog-host {
+  z-index: 1000;
+}
+
+.dialog-message {
+  margin: 0 0 12px;
+  color: #cfd6e0;
+  white-space: pre-line;
+  line-height: 1.5;
+}
+
+.dialog-input {
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid #3a3f47;
+  border-radius: 6px;
+  background: #14161a;
+  color: #e6e8eb;
+  font: 13px system-ui, sans-serif;
+}
+
+.dialog-error {
+  min-height: 18px;
+  margin: 4px 0 8px;
+  color: #f48771;
+  font-size: 12px;
+}
+
+.dialog-choices {
+  display: grid;
+  gap: 4px;
+  max-height: 50vh;
+  margin: 0 0 10px;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.dialog-choice {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #2c3037;
+  border-radius: 6px;
+  background: #14161a;
+  color: #e6e8eb;
+  font: 13px system-ui, sans-serif;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dialog-choice:hover, .dialog-choice:focus-visible {
+  border-color: #5b9dff;
+  outline: none;
+  background: #1a2230;
+}
+
+.dialog-choice small {
+  color: #8b93a0;
+}
+
+.controls-stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 1px solid #3a3f47;
+  border-radius: 10px;
+  background: #0b0d10;
+  overflow: hidden;
+  touch-action: none;
+}
+
+.controls-item {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font: 600 14px system-ui, sans-serif;
+  transform: translate(-50%, -50%);
+  cursor: grab;
+  user-select: none;
+}
+
+.controls-item[data-selected='true'] {
+  border-color: #5b9dff;
+  box-shadow: 0 0 0 3px rgba(91, 157, 255, 0.35);
+}

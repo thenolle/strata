@@ -17,7 +17,7 @@ import { compileGraph, listNodes, type GraphData } from '../packages/scripting/s
 import { emptyGraphText } from '../apps/editor/src/graph-view.ts'
 import { pngToIco } from '../apps/editor/src/ico.ts'
 import { sanitizeSettings } from '../apps/editor/src/export-settings.ts'
-
+import { parseControls } from '../packages/input/src/virtual-controls'
 
 console.log('fuzzy', fuzzyScore('sp', 'setPosition'), (fuzzyScore('sp', 'spawn') ?? 0) > (fuzzyScore('sp', 'setPosition') ?? 0), fuzzyScore('xyz', 'setPosition'))
 const expanded = expandSnippet('for (const ${1:item} of ${2:items}) {\n\t$0\n}', '\t')
@@ -246,3 +246,7 @@ const again = await packProject(sourceStorage)
 const copied = await unpackProject(again.ok ? again.value : new Uint8Array(), new MemoryStorage())
 const loadedSettings = copied.ok ? await copied.value.loadSettings() : undefined
 console.log('settings-archive', JSON.stringify(loadedSettings?.ok ? loadedSettings.value : null))
+
+const parsedControls = parseControls({ mode: 'always', opacity: 5, items: [{ kind: 'stick', x: 150, y: 20, size: 5, keys: [] }, { kind: 'button', x: 80, y: 80, size: 90, keys: ['Space', 'bad key!'], label: 'Jump' }, { kind: 'wat' }] })
+console.log('controls', parsedControls.mode, parsedControls.opacity, parsedControls.items.length, parsedControls.items[0]?.x, parsedControls.items[0]?.size, parsedControls.items[0]?.keys.join(','), parsedControls.items[1]?.keys.join(','))
+console.log('controls-default', parseControls(undefined).items.length, parseControls(undefined).mode)
