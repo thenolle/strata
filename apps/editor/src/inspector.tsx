@@ -5,6 +5,7 @@ import type { Child } from '@gambrel/view'
 import type { Entity } from '@strata/core'
 import type { EditorSession, RegisteredComponent } from '@strata/editor-core'
 import { eulerToQuat, quatToEuler } from './euler.ts'
+import { allowedIn, sceneTypeOf } from './scene-types.ts'
 
 interface FieldProps {
 	readonly label: string
@@ -218,7 +219,7 @@ function setEuler(session: EditorSession, entity: Entity, axis: 0 | 1 | 2, degre
 	session.setTransform(entity, { qx: next[0], qy: next[1], qz: next[2], qw: next[3] })
 }
 
-function AddComponent(props: { readonly session: EditorSession; readonly entity: Entity; readonly revision: () => number }): Child {
+function AddComponent(props: { readonly session: EditorSession; readonly entity: Entity; readonly revision: () => number; readonly type: () => '2d' | '3d' | Promise<unknown> }): Child {
 	return (
 		<label class="field">
 			<span>Add</span>
@@ -228,9 +229,13 @@ function AddComponent(props: { readonly session: EditorSession; readonly entity:
 					effect(() => {
 						props.revision()
 						if (document.activeElement === select) return
-						const missing = definitionsOf(props.session).filter((definition) => !props.session.world.has(props.entity, definition))
-						select.replaceChildren(new Option('Add component…', ''), ...missing.map((definition) => new Option(definition.name, definition.name)))
-						select.value = ''
+						void Promise.resolve(props.type()).then((sceneType) => {
+							if (document.activeElement === select) return
+							const type = String(sceneType) === '3d' ? '3d' : '2d'
+							const missing = definitionsOf(props.session).filter((definition) => allowedIn(type, definition.name) && !props.session.world.has(props.entity, definition))
+							select.replaceChildren(new Option('Add component…', ''), ...missing.map((definition) => new Option(definition.name, definition.name)))
+							select.value = ''
+						})
 					})
 					const commit = (): void => {
 						const definition = definitionsOf(props.session).find((candidate) => candidate.name === select.value)
@@ -254,6 +259,7 @@ export function Inspector(props: {
 	readonly selected: () => Entity | undefined
 	readonly revision: () => number
 	readonly run: (command: string) => void
+	readonly type?: () => '2d' | '3d'
 }): Child {
 	const presence = signal('')
 	return (
@@ -305,7 +311,7 @@ export function Inspector(props: {
 											Make solid
 										</Button>
 									</div>
-									<AddComponent session={session} entity={entity} revision={revision} />
+									<AddComponent session={session} entity={entity} revision={revision} type={props.type ?? (() => sceneTypeOf(session))} />
 								</div>
 							)
 						}}

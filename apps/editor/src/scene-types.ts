@@ -6,6 +6,8 @@ export type SceneType = '2d' | '3d'
 
 const THREE_D = ['mesh', 'light', 'camera3d', 'environment']
 const GLYPHS: readonly (readonly [string, string])[] = [['mesh', '▣'], ['light', '✺'], ['camera3d', '◉'], ['environment', '☁'], ['sprite', '▨'], ['camera', '◉'], ['collider', '▢']]
+const THREE_D_ONLY: readonly string[] = ['mesh', 'light', 'camera3d', 'environment']
+const TWO_D_ONLY: readonly string[] = ['sprite', 'collider', 'camera']
 
 export function parseSceneTypes(value: unknown): Record<string, SceneType> {
 	const out: Record<string, SceneType> = {}
@@ -78,3 +80,6 @@ export async function lastSceneOf(project: Project): Promise<string | undefined>
 	const value = (await readSettings(project))['lastScene']
 	return typeof value === 'string' ? value : undefined
 }
+
+/** Whether a component belongs in a scene of this type. */
+export const allowedIn = (type: SceneType, component: string): boolean => (type === '3d' ? !TWO_D_ONLY.includes(component) : !THREE_D_ONLY.includes(component))

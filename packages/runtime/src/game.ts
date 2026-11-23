@@ -445,7 +445,7 @@ export class Game implements Disposable {
 			if (mesh !== undefined) {
 				const size = mesh.size > 0 ? mesh.size : 100
 				const shape: Shape3D = mesh.shape === 'sphere' || mesh.shape === 'cylinder' || mesh.shape === 'plane' ? mesh.shape : 'cube'
-				draws.push({ shape, model: multiply(world, scaleMatrix(size, size, size)), color: hex(mesh.color), lit: true })
+				draws.push({ shape, model: multiply(world, scaleMatrix(size, size, size)), color: hex(mesh.color), lit: true, shine: mesh.shininess })
 				this.#drawn++
 				continue
 			}

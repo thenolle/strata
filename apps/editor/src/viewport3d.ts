@@ -32,6 +32,7 @@ interface Item {
 	readonly sprite: string
 	readonly fov: number
 	readonly position: Vec
+	readonly shine: number
 }
 interface Handle {
 	readonly axis: 0 | 1 | 2
@@ -128,7 +129,8 @@ export function startViewport3D(options: ViewportOptions): () => void {
 		| 'ambient'
 		| 'fog'
 		| 'fogColor'
-		| 'eye',
+		| 'eye'
+		| 'shine',
 		WebGLUniformLocation | null
 	>
 	try {
@@ -182,6 +184,7 @@ export function startViewport3D(options: ViewportOptions): () => void {
 			eye: gl.getUniformLocation(program, 'eye'),
 			fog: gl.getUniformLocation(program, 'fog'),
 			fogColor: gl.getUniformLocation(program, 'fogColor'),
+			shine: gl.getUniformLocation(program, 'shine'),
 		}
 	} catch (error: unknown) {
 		options.onStatus(`The 3D view could not start: ${error instanceof Error ? error.message : String(error)}`)
@@ -233,11 +236,13 @@ export function startViewport3D(options: ViewportOptions): () => void {
 			let pick: Vec = [28, 28, 28]
 			let sprite = ''
 			let fov = 60
+			let shine = 0
 			if (has(entity, 'environment')) found = { background: hex(String(value(entity, 'environment', 'background') ?? '#0f1114')), ambient: Number(value(entity, 'environment', 'ambient') ?? 0.3), fog: Number(value(entity, 'environment', 'fog') ?? 0) }
 			if (has(entity, 'mesh')) {
 				kind = 'mesh'
 				shape = String(value(entity, 'mesh', 'shape') ?? 'cube')
 				color = hex(String(value(entity, 'mesh', 'color') ?? '#808080'))
+				shine = Number(value(entity, 'mesh', 'shininess') ?? 0)
 				const size = Number(value(entity, 'mesh', 'size')) || 100
 				draw = [size, size, size]
 				pick = shape === 'plane' ? [size, 6, size] : draw
@@ -255,26 +260,10 @@ export function startViewport3D(options: ViewportOptions): () => void {
 			} else if (has(entity, 'camera3d')) {
 				kind = 'camera'
 				fov = Number(value(entity, 'camera3d', 'fov') ?? 60)
-			} else {
-				const id = session.spriteOf(entity)
-				const record = id === '' ? undefined : session.project.assets.get(id as Guid)
-				if (record?.kind === 'image') {
-					kind = 'sprite'
-					sprite = id
-					draw = [record.image.width, record.image.height, 1]
-					pick = [record.image.width, record.image.height, 8]
-				} else if (has(entity, 'collider')) {
-					kind = 'shape'
-					const circle = value(entity, 'collider', 'shape') === 'circle'
-					const w = circle ? Number(value(entity, 'collider', 'radius') ?? 16) * 2 : Number(value(entity, 'collider', 'width') ?? 32)
-					const h = circle ? w : Number(value(entity, 'collider', 'height') ?? 32)
-					draw = [w, h, 12]
-					pick = draw
-				}
 			}
 			const model = multiply(world, scaleMatrix(...draw))
 			const pickModel = multiply(world, scaleMatrix(...pick))
-			next.push({ entity, kind, world, model, pickModel, pickInverse: invert(pickModel), shape, color, sprite, fov, position: [world[12]!, world[13]!, world[14]!] })
+			next.push({ entity, kind, world, model, pickModel, pickInverse: invert(pickModel), shape, color, sprite, fov, shine, position: [world[12]!, world[13]!, world[14]!] })
 		}
 		if (lights.length === 0) lights.push({ a: [0.4, 0.8, 0.5, 0], b: [1, 1, 1, 0] })
 		lightA = new Float32Array(16).fill(0)
@@ -295,12 +284,13 @@ export function startViewport3D(options: ViewportOptions): () => void {
 		for (let c = 0; c < 3; c++) for (let r = 0; r < 3; r++) out[c * 3 + r] = inverse[r * 4 + c]!
 		return out
 	}
-	const draw = (geometry: Geometry, mode: number, model: Float32Array, color: readonly number[], lit: number, texture?: WebGLTexture): void => {
+	const draw = (geometry: Geometry, mode: number, model: Float32Array, color: readonly number[], lit: number, texture?: WebGLTexture, shine = 0): void => {
 		gl.uniformMatrix4fv(u.model, false, model)
 		gl.uniformMatrix3fv(u.normalMat, false, normalMatrix(model))
 		gl.uniform4f(u.color, color[0] ?? 1, color[1] ?? 1, color[2] ?? 1, color[3] ?? 1)
 		gl.uniform1i(u.useTex, texture === undefined ? 0 : 1)
 		gl.uniform1f(u.lit, lit)
+		gl.uniform1f(u.shine, shine)
 		if (texture !== undefined) gl.bindTexture(gl.TEXTURE_2D, texture)
 		gl.bindVertexArray(geometry.vao)
 		gl.drawArrays(mode, 0, geometry.count)
@@ -394,7 +384,7 @@ export function startViewport3D(options: ViewportOptions): () => void {
 		for (const item of items) {
 			if (item.kind === 'mesh' || item.kind === 'shape') {
 				const geometry = item.kind === 'shape' ? geo.box : item.shape === 'sphere' ? geo.sphere : item.shape === 'cylinder' ? geo.cylinder : item.shape === 'plane' ? geo.plane : geo.box
-				draw(geometry, gl.TRIANGLES, item.model, [...item.color, 1], 1)
+				draw(geometry, gl.TRIANGLES, item.model, [...item.color, 1], 1, undefined, item.shine)
 			}
 		}
 		for (const item of items) {

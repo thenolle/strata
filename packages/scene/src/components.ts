@@ -32,7 +32,7 @@ export const Camera = defineComponent('camera', { zoom: 'f32', follow: 'string',
 export type TransformData = ComponentData<(typeof Transform)['schema']>
 
 /** A 3D shape: "cube", "sphere", "plane" or "cylinder", with a color and a base size in units. */
-export const Mesh = defineComponent('mesh', { shape: 'string', color: 'string', size: 'f32' }, { shape: 'cube', color: '#5b9dff', size: 100 })
+export const Mesh = defineComponent('mesh', { shape: 'string', color: 'string', size: 'f32', shininess: 'f32' }, { shape: 'cube', color: '#5b9dff', size: 100, shininess: 0 })
 
 /** Lights the 3D view. A directional light shines along the entity's forward direction; a point light spreads from its position. */
 export const Light = defineComponent('light', { kind: 'string', color: 'string', intensity: 'f32', range: 'f32' }, { kind: 'directional', color: '#ffffff', intensity: 1, range: 500 })
