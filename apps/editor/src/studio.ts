@@ -18,6 +18,7 @@ export interface StudioHooks {
 	readonly openExport: () => void
 	readonly announce: (text: string) => void
 	readonly openControls: () => void
+	readonly resetLayout: () => void
 }
 
 export interface Studio extends Disposable {
@@ -141,11 +142,14 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 
 	command('file.save', 'Save', 'File', hooks.save)
 
+	command('help.about', 'About Strata', 'Help', async () => { await dialogs.alert('Strata is a 2D and 3D game development environment by Nolly.\n\nGames made with Strata belong to their creators, with credit to Nolly and Strata.', { title: 'About Strata' }) })
+
 	command('project.close', 'Close Project', 'File', hooks.close)
 
 	command('view.toggleGrid', 'Toggle Grid', 'View', () => contexts.set('gridVisible', contexts.get('gridVisible') !== true))
 	command('view.mode2d', 'Switch to 2D View', 'View', () => contexts.set('viewMode', '2d'))
 	command('view.mode3d', 'Switch to 3D View', 'View', () => contexts.set('viewMode', '3d'))
+	command('view.resetLayout', 'Reset Layout', 'View', () => hooks.resetLayout())
 
 	command('asset.addToScene', 'Add Asset to Scene', 'Asset', async (args) => {
 		if (session.project.assets.get(assetArg(args) as Guid)?.kind === 'prefab') return instantiatePrefab(args)
@@ -206,7 +210,6 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 		const copies = session.selected.map((entity) => session.duplicate(entity)).filter((copy): copy is Entity => copy !== undefined)
 		session.selectMany(copies)
 	}, 'hasSelection')
-	command('edit.selectAll', 'Select All', 'Edit', () => session.selectAll())
 	command('entity.makePlayer', 'Make Selected a Player', 'Entity', () => {
 		const entity = session.selection
 		if (entity !== undefined) session.addComponents(entity, { body: { kind: 'dynamic' }, collider: colliderSize(entity), controller: {} })
@@ -235,6 +238,7 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 	command('tool.rect', 'Rect Tool', 'Tools', () => contexts.set('tool', 'rect'))
 
 	command('edit.copy', 'Copy', 'Edit', () => void copySelection(), 'hasSelection')
+	command('edit.selectAll', 'Select All', 'Edit', () => session.selectAll())
 	command('edit.cut', 'Cut', 'Edit', () => {
 		if (copySelection()) session.deleteSelected()
 	}, 'hasSelection')
@@ -431,6 +435,37 @@ export function createStudio(session: EditorSession, hooks: StudioHooks): Studio
 	contribute('explorer/context', { command: 'prefab.instantiate', title: 'Instantiate in Scene', group: '2_open@2', when: "assetKind == 'prefab'" })
 	contribute('explorer/context', { command: 'graph.new', title: 'New Graph', group: '1_new@3', when: isFolder })
 	contribute('explorer/context', { command: 'graph.edit', title: 'Edit Graph', group: '2_open@1', when: "assetKind == 'graph'" })
+
+	contribute('menubar/file', { command: 'file.save', group: '1_file' })
+	contribute('menubar/file', { command: 'game.export', group: '2_export@1' })
+	contribute('menubar/file', { command: 'game.controls', group: '2_export@2' })
+	contribute('menubar/file', { command: 'project.close', group: '9_close' })
+	contribute('menubar/edit', { command: 'edit.undo', group: '1_history@1' })
+	contribute('menubar/edit', { command: 'edit.redo', group: '1_history@2' })
+	contribute('menubar/edit', { command: 'edit.cut', group: '2_clipboard@1' })
+	contribute('menubar/edit', { command: 'edit.copy', group: '2_clipboard@2' })
+	contribute('menubar/edit', { command: 'edit.paste', group: '2_clipboard@3' })
+	contribute('menubar/edit', { command: 'entity.duplicate', group: '3_modify@1' })
+	contribute('menubar/edit', { command: 'entity.delete', group: '3_modify@2' })
+	contribute('menubar/edit', { command: 'edit.selectAll', group: '3_modify@3' })
+	contribute('menubar/scene', { command: 'scene.new', group: '1_scene@1' })
+	contribute('menubar/scene', { command: 'scene.switch', group: '1_scene@2' })
+	contribute('menubar/scene', { command: 'scene.rename', group: '1_scene@3' })
+	contribute('menubar/scene', { command: 'scene.delete', group: '1_scene@4' })
+	contribute('menubar/scene', { submenu: 'entity/create', title: 'Create', group: '2_entity@1' })
+	contribute('menubar/scene', { command: 'entity.addPlayer', group: '2_entity@2' })
+	contribute('menubar/scene', { command: 'entity.addPlatform', group: '2_entity@3' })
+	contribute('menubar/scene', { command: 'entity.addCamera', group: '2_entity@4' })
+	contribute('menubar/project', { command: 'script.new', group: '1_new@1' })
+	contribute('menubar/project', { command: 'graph.new', group: '1_new@2' })
+	contribute('menubar/project', { command: 'game.controls', group: '2_game' })
+	contribute('menubar/view', { command: 'view.toggleGrid', title: 'Show Grid', group: '1_view@1', toggled: 'gridVisible' })
+	contribute('menubar/view', { command: 'view.mode2d', group: '1_view@2' })
+	contribute('menubar/view', { command: 'view.mode3d', group: '1_view@3' })
+	contribute('menubar/view', { command: 'view.resetLayout', group: '2_layout' })
+	contribute('menubar/view', { command: 'workbench.action.showCommands', group: '3_commands' })
+	contribute('menubar/help', { command: 'workbench.action.showCommands', group: '1_help@1' })
+	contribute('menubar/help', { command: 'help.about', group: '1_help@2' })
 
 	return { contexts, commands, keybindings, menus, dispose: () => store.dispose() }
 }
