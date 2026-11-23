@@ -19,6 +19,7 @@ import { pngToIco } from '../apps/editor/src/ico.ts'
 import { sanitizeSettings } from '../apps/editor/src/export-settings.ts'
 import { parseControls } from '../packages/input/src/virtual-controls'
 import { prettyKeys } from '../apps/editor/src/shortcuts.ts'
+import { output } from '../apps/editor/src/output.ts'
 
 console.log('shortcuts', prettyKeys('mod+shift+z'), prettyKeys('f5'), prettyKeys('contextmenu'), prettyKeys('w'))
 console.log('fuzzy', fuzzyScore('sp', 'setPosition'), (fuzzyScore('sp', 'spawn') ?? 0) > (fuzzyScore('sp', 'setPosition') ?? 0), fuzzyScore('xyz', 'setPosition'))
@@ -252,3 +253,8 @@ console.log('settings-archive', JSON.stringify(loadedSettings?.ok ? loadedSettin
 const parsedControls = parseControls({ mode: 'always', opacity: 5, items: [{ kind: 'stick', x: 150, y: 20, size: 5, keys: [] }, { kind: 'button', x: 80, y: 80, size: 90, keys: ['Space', 'bad key!'], label: 'Jump' }, { kind: 'wat' }] })
 console.log('controls', parsedControls.mode, parsedControls.opacity, parsedControls.items.length, parsedControls.items[0]?.x, parsedControls.items[0]?.size, parsedControls.items[0]?.keys.join(','), parsedControls.items[1]?.keys.join(','))
 console.log('controls-default', parseControls(undefined).items.length, parseControls(undefined).mode)
+
+for (let index = 0; index < 600; index++) output.info(`line ${index}`)
+output.error('bad')
+console.log('output', output.lines().length, output.lines()[0]?.text, output.unseenErrors())
+output.clear()

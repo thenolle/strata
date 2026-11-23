@@ -2202,3 +2202,47 @@ body {
   max-height: 60vh;
   overflow: auto;
 }
+
+.dock-tabs {
+  display: flex;
+  gap: 2px;
+}
+
+.dock-tab {
+  padding: 3px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #8b93a0;
+  font: 600 12px system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.dock-tab[data-active='true'] {
+  background: #262b33;
+  color: #e6e8eb;
+}
+
+.output {
+  flex: 1;
+  min-height: 0;
+  padding: 6px 10px;
+  overflow: auto;
+  font: 12px/1.5 ui-monospace, Consolas, monospace;
+}
+
+.output-line {
+  display: flex;
+  gap: 8px;
+  color: #cfd6e0;
+  white-space: pre-wrap;
+}
+
+.output-line[data-kind='error'] {
+  color: #f48771;
+}
+
+.output-time {
+  flex: none;
+  color: #6b7280;
+}
